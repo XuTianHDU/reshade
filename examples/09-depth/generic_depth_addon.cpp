@@ -67,8 +67,8 @@ struct draw_stats
 		return (drawcalls_indirect < (drawcalls / 3) ?
 			// Choose snapshot with the most vertices, since that is likely to contain the main scene
 			vertices > other.vertices :
-			// Or check draw calls, since vertices may not be accurate if application is using indirect draw calls
-			drawcalls > other.drawcalls);
+		// Or check draw calls, since vertices may not be accurate if application is using indirect draw calls
+		drawcalls > other.drawcalls);
 	}
 };
 struct clear_stats : public draw_stats
@@ -95,10 +95,12 @@ struct resource_hash
 	}
 };
 
+// 用来跟踪命令列表或命令队列中的深度缓冲相关状态
 struct __declspec(uuid("43319e83-387c-448e-881c-7e68fc2e52c4")) state_tracking
 {
 	const bool is_queue;
 	viewport current_viewport = {};
+	// 当前跟踪的深度模版变量 resource 对象
 	resource current_depth_stencil = { 0 };
 	std::unordered_map<resource, depth_stencil_frame_stats, resource_hash> counters_per_used_depth_stencil;
 	bool first_draw_since_bind = true;
@@ -156,16 +158,20 @@ struct __declspec(uuid("43319e83-387c-448e-881c-7e68fc2e52c4")) state_tracking
 struct __declspec(uuid("7c6363c7-f94e-437a-9160-141782c44a98")) generic_depth_data
 {
 	// The depth-stencil resource that is currently selected as being the main depth target
+	// 当前选择的深度模版数据
 	resource selected_depth_stencil = { 0 };
 
 	// Resource used to override automatic depth-stencil selection
+	// 用于手动覆盖自动选择的深度缓冲资源
 	resource override_depth_stencil = { 0 };
 
 	// The current depth shader resource view bound to shaders
 	// This can be created from either the selected depth-stencil resource (if it supports shader access) or from a backup resource
+	// 当前绑定的深度缓冲区的着色器资源视图
 	resource_view selected_shader_resource = { 0 };
 
 	// True when the shader resource view was created from the backup resource, false when it was created from the original depth-stencil
+	// 标识当前的着色器资源视图是否来自备份纹理
 	bool using_backup_texture = false;
 };
 
@@ -178,9 +184,11 @@ struct depth_stencil_backup
 	uint64_t destroy_after_frame = std::numeric_limits<uint64_t>::max();
 
 	// A resource used as target for a backup copy of this depth-stencil
+	// 备份深度缓冲区的资源
 	resource backup_texture = { 0 };
 
 	// The depth-stencil that should be copied from
+	// 原始的深度缓冲区资源
 	resource depth_stencil_resource = { 0 };
 
 	// Frame dimensions of the last effect runtime this backup was used with
@@ -194,6 +202,7 @@ struct depth_stencil_backup
 
 struct depth_stencil_resource
 {
+	// 用于记录特定深度缓冲资源的使用情况
 	depth_stencil_frame_stats last_counters;
 
 	// Index of the frame in which the depth-stencil was last/first seen used in
@@ -201,31 +210,42 @@ struct depth_stencil_resource
 	uint64_t first_used_in_frame = std::numeric_limits<uint64_t>::max();
 };
 
+// 跟踪与设备（device）相关的深度缓冲区资源和备份信息
 struct __declspec(uuid("e006e162-33ac-4b9f-b10f-0e15335c7bdb")) generic_depth_device_data
 {
 	uint64_t frame_index = 0;
 
 	// List of queues created for this device
+	// 记录与设备关联的所有命令队列
 	std::vector<command_queue *> queues;
 
 	// List of all encountered depth-stencils of the last frame
+	// resource  => depth_stencil_resource
+	// 存储设备中所有已知的深度缓冲资源信息
 	std::unordered_map<resource, depth_stencil_resource, resource_hash> depth_stencil_resources;
 
 	// List of depth-stencils that should be tracked throughout each frame and potentially be backed up during clear operations
+	// 存储深度缓冲区的备份资源
 	std::vector<depth_stencil_backup> depth_stencil_backups;
 
+	// 找到这个resource对应的 depth_stencil_backup
+	// 找到某一个resource的备份resource，如果没有的话就返回nullptr
 	depth_stencil_backup *find_depth_stencil_backup(resource resource)
 	{
+		// C++中的 == 默认是逐个变量的比较，而不是指针的比较
 		for (depth_stencil_backup &backup : depth_stencil_backups)
 			if (backup.depth_stencil_resource == resource)
 				return &backup;
 		return nullptr;
 	}
 
+	// 在有了resource和desc之后，创建其备份resource，这里的resource和desc参数都是副本，device是引用
+	// 结果是拿到 resource 的 backup 备份，并且返回
 	depth_stencil_backup *track_depth_stencil_for_backup(device *device, resource resource, resource_desc desc)
 	{
 		assert(resource != 0);
 
+		// 查找是否已经有备份资源
 		const auto it = std::find_if(depth_stencil_backups.begin(), depth_stencil_backups.end(),
 			[resource](const depth_stencil_backup &existing) { return existing.depth_stencil_resource == resource; });
 		if (it != depth_stencil_backups.end())
@@ -257,6 +277,7 @@ struct __declspec(uuid("e006e162-33ac-4b9f-b10f-0e15335c7bdb")) generic_depth_de
 			desc.usage |= resource_usage::resolve_dest;
 		}
 
+		// 对于D9,10,11，12而言，需要对数据进行专门的处理，将数据转化为typeless的格式
 		if (api == device_api::d3d9)
 			desc.texture.format = format::r32_float; // D3DFMT_R32F, since INTZ does not support D3DUSAGE_RENDERTARGET which is required for copying
 		// Use depth format as-is in OpenGL and Vulkan, since those are valid for shader resource views there
@@ -266,6 +287,7 @@ struct __declspec(uuid("e006e162-33ac-4b9f-b10f-0e15335c7bdb")) generic_depth_de
 		// First try to revive a backup resource that was previously enqueued for delayed destruction
 		for (depth_stencil_backup &backup : depth_stencil_backups)
 		{
+			// 遍历所有的准备延迟销毁的资源，如果有符合条件的直接在这个资源上进行修改
 			if (backup.depth_stencil_resource != 0)
 				continue;
 
@@ -284,10 +306,12 @@ struct __declspec(uuid("e006e162-33ac-4b9f-b10f-0e15335c7bdb")) generic_depth_de
 				return &backup;
 			}
 		}
-
+		// 如果找不到备份资源，则创建一个新的备份资源
 		depth_stencil_backup &backup = depth_stencil_backups.emplace_back();
 		backup.depth_stencil_resource = resource;
 
+		// 这里 create_resource 创建了一个原始深度信息相同desc的新资源，并且返回了资源句柄，但是其中并没有具体的数据
+		// 所以需要通过 copy_resource 将原始深度信息拷贝到新的资源中
 		if (device->create_resource(desc, nullptr, resource_usage::copy_dest, &backup.backup_texture))
 		{
 			device->set_resource_name(backup.backup_texture, "ReShade depth backup texture");
@@ -425,15 +449,15 @@ static void on_clear_depth_impl(command_list *cmd_list, state_tracking &state, r
 				do_copy = current_stats.vertices >= state.best_copy_stats.vertices || (op == clear_op::fullscreen_draw && current_stats.drawcalls >= state.best_copy_stats.drawcalls);
 			}
 			else
-			if (depth_stencil_backup->force_clear_index == std::numeric_limits<uint32_t>::max())
-			{
-				// Special case for Garry's Mod which chooses the last clear operation that has a high workload
-				do_copy = current_stats.vertices >= 5000;
-			}
-			else
-			{
-				do_copy = (depth_stencil_backup->current_clear_index++) == (depth_stencil_backup->force_clear_index - 1);
-			}
+				if (depth_stencil_backup->force_clear_index == std::numeric_limits<uint32_t>::max())
+				{
+					// Special case for Garry's Mod which chooses the last clear operation that has a high workload
+					do_copy = current_stats.vertices >= 5000;
+				}
+				else
+				{
+					do_copy = (depth_stencil_backup->current_clear_index++) == (depth_stencil_backup->force_clear_index - 1);
+				}
 
 			counters.clears.push_back({ current_stats, op, do_copy });
 		}
@@ -487,8 +511,10 @@ static void update_effect_runtime(effect_runtime *runtime)
 
 static void on_init_device(device *device)
 {
+	// private data 中创建 generic_depth_device_data 用来备份 depth stencil数据
 	device->create_private_data<generic_depth_device_data>();
 
+	// 在配置文件中加入以下配置
 	reshade::get_config_value(nullptr, "DEPTH", "DisableINTZ", s_disable_intz);
 	reshade::get_config_value(nullptr, "DEPTH", "DepthCopyBeforeClears", s_preserve_depth_buffers);
 	reshade::get_config_value(nullptr, "DEPTH", "DrawStatsHeuristic", reinterpret_cast<unsigned int &>(s_draw_stats_heuristic));
@@ -560,17 +586,26 @@ static void on_destroy_effect_runtime(effect_runtime *runtime)
 	runtime->destroy_private_data<generic_depth_data>();
 }
 
+// 当图形 API 创建一个资源（例如纹理或缓冲区）时，会调用此回调函数
+// 主要就是改变resource desc的usage和format，usage加上reshade_resource, format改成typeless的形式以供reshade使用
+// 目前的条件是已经有了desc在根据desc创建resource之前的函数
 static bool on_create_resource(device *device, resource_desc &desc, subresource_data *, resource_usage)
 {
+	// 只处理 surface 或者 2d 纹理
 	if (desc.type != resource_type::surface && desc.type != resource_type::texture_2d)
 		return false; // Skip resources that are not 2D textures
 
+	// 如果使用1：多重采样+不支持深度模版解析
+	// 2. 不用作深度模板的资源
+	// 3. 只含模板信息的资源 直接跳过
 	if ((desc.texture.samples > 1 && !device->check_capability(device_caps::resolve_depth_stencil)) || (desc.usage & resource_usage::depth_stencil) == 0 || desc.texture.format == format::s8_uint)
 		return false; // Skip multisampled textures and resources that are not used as depth buffers
 
 	switch (device->get_api())
 	{
+		// 对于不同的渲染器而言
 	case device_api::d3d9:
+		// 如果INTZ hack被禁用或是多重采样纹理
 		if (s_disable_intz || desc.texture.samples > 1)
 			return false;
 		// Skip textures that are sampled as PCF shadow maps (see https://aras-p.info/texts/D3D9GPUHacks.html#shadowmap) using hardware support, since changing format would break that
@@ -588,6 +623,7 @@ static bool on_create_resource(device *device, resource_desc &desc, subresource_
 	case device_api::d3d10:
 	case device_api::d3d11:
 		// Allow shader access to textures that are used as depth-stencil attachments
+		// 转换format为typeless 例如 D24S8 => r24_g8_typeless, D32S8 => r32_g8_typeless
 		desc.texture.format = format_to_typeless(desc.texture.format);
 		desc.usage |= resource_usage::shader_resource;
 		break;
@@ -609,6 +645,7 @@ static bool on_create_resource(device *device, resource_desc &desc, subresource_
 static bool on_create_resource_view(device *device, resource resource, resource_usage usage_type, resource_view_desc &desc)
 {
 	// A view cannot be created with a typeless format (which was set in 'on_create_resource' above), so fix it in case defaults are used
+	// 图形API是D3D10或D3D11，视图格式是未知（让函数选择合适的格式）或是无类型格式（需要转换为具体格式）需要继续处理
 	if ((device->get_api() != device_api::d3d10 && device->get_api() != device_api::d3d11) || (desc.format != format::unknown && desc.format != format_to_typeless(desc.format)))
 		return false;
 
@@ -919,6 +956,7 @@ static void on_present(command_queue *, swapchain *swapchain, const rect *, cons
 	}
 }
 
+// 在计算好
 static void on_begin_render_effects(effect_runtime *runtime, command_list *cmd_list, resource_view, resource_view)
 {
 	device *const device = runtime->get_device();
@@ -943,21 +981,27 @@ static void on_begin_render_effects(effect_runtime *runtime, command_list *cmd_l
 
 	for (auto &[resource, info] : current_depth_stencil_resources)
 	{
-		if (info.last_counters.total_stats.drawcalls == 0 || (info.last_counters.total_stats.vertices <= 3 && info.last_counters.total_stats.drawcalls_indirect == 0))
+		// 跳过未使用或几乎未使用（顶点数≤3）的深度缓冲
+		if (info.last_counters.total_stats.drawcalls == 0 || info.last_counters.total_stats.vertices <= 3)
 			continue; // Skip unused
 
+		// 跳过在当前帧未使用的资源，或者首次出现不久的资源（避免使用临时资源）
 		if (info.last_used_in_frame < device_data->frame_index || device_data->frame_index <= (info.first_used_in_frame + 1))
 			continue; // Skip resources not used this frame or those that only just appeared for the first time
 
+		// 如果设备不支持解析多重采样深度模板，则跳过多重采样纹理
 		const resource_desc desc = device->get_resource_desc(resource);
 		if (desc.texture.samples > 1 && !device->check_capability(device_caps::resolve_depth_stencil))
 			continue; // Ignore multisampled textures, since they would need to be resolved first
 
+		// 如果启用了格式过滤，则检查深度格式是否合适
 		if (s_format_filtering != 0 && !check_depth_format(desc.texture.format))
 			continue;
+		// 检查深度缓冲的纵横比是否与帧缓冲匹配
 		if (s_aspect_ratio_heuristic != aspect_ratio_heuristic::none && !check_aspect_ratio(static_cast<float>(desc.texture.width), static_cast<float>(desc.texture.height), static_cast<float>(frame_width), static_cast<float>(frame_height)))
 			continue; // Not a good fit
 
+		// 选择具有最高活动度（绘制调用和顶点数最多）的深度缓冲作为最佳匹配
 		const depth_stencil_frame_stats &snapshot = info.last_counters;
 		if (best_snapshot == nullptr ||
 			snapshot.total_stats > best_snapshot->total_stats)
@@ -968,6 +1012,7 @@ static void on_begin_render_effects(effect_runtime *runtime, command_list *cmd_l
 		}
 	}
 
+	// 如果户手动指定的深度缓冲，比如在插件上勾选了某一个深度缓冲区，那么best match就是这个深度缓冲区
 	if (data.override_depth_stencil != 0)
 	{
 		const auto it = current_depth_stencil_resources.find(data.override_depth_stencil);
@@ -979,16 +1024,22 @@ static void on_begin_render_effects(effect_runtime *runtime, command_list *cmd_l
 		}
 	}
 
+	// 保存之前的着色器资源视图引用，用于后续比较和优化
 	const resource_view prev_shader_resource = data.selected_shader_resource;
 
+	// 找到最优匹配的resource
 	if (best_match != 0) do
 	{
 		const device_api api = device->get_api();
 
+		// 拿到 best_match 的 depth_stencil_backup 
 		depth_stencil_backup *depth_stencil_backup = device_data->find_depth_stencil_backup(best_match);
 
+		// 如果深度缓冲变更，或者之前没有着色器资源，或者需要进行备份但当前无备份
+		// 这确保了只有在真正需要切换深度缓冲区或设置初始深度缓冲区时才执行清理操作。
 		if (best_match != data.selected_depth_stencil || prev_shader_resource == 0 || (s_preserve_depth_buffers && depth_stencil_backup == nullptr))
 		{
+			// 当需要切换深度缓冲区的时候，把之前跟踪的深度缓冲区信息清理掉
 			// Untrack previous depth-stencil first, so that backup texture can potentially be reused
 			if (data.selected_depth_stencil != 0)
 			{
@@ -1003,8 +1054,10 @@ static void on_begin_render_effects(effect_runtime *runtime, command_list *cmd_l
 
 			// Need to create backup texture only if doing backup copies or original resource does not support shader access (which is necessary for binding it to effects)
 			// Also always create a backup texture in D3D12 or Vulkan to circument problems in case application makes use of resource aliasing
+			// 启用深度缓冲区保存功能 / 原始深度缓冲区不支持着色器访问 / 多重采样纹理需要解析才能被着色器读取 / d3d12 或者 vulkan 渲染的
 			if (s_preserve_depth_buffers || (best_match_desc.usage & resource_usage::shader_resource) == 0 || best_match_desc.texture.samples > 1 || (api == device_api::d3d12 || api == device_api::vulkan))
 			{
+				// 创建resource的备份纹理
 				depth_stencil_backup = device_data->track_depth_stencil_for_backup(device, best_match, best_match_desc);
 
 				// Abort in case backup texture creation failed
@@ -1021,11 +1074,13 @@ static void on_begin_render_effects(effect_runtime *runtime, command_list *cmd_l
 					depth_stencil_backup->force_clear_index = 0;
 
 				// Avoid recreating shader resource view when the backup texture did not change
+				// prev_shader_resource 没有初始化，或者其对应的resource 与 创建的备份纹理不是同一个resource，那么就初始化或者修改 shader resource
 				if (prev_shader_resource == 0 || device->get_resource_from_view(prev_shader_resource) != depth_stencil_backup->backup_texture)
 				{
 					if (api == device_api::d3d9)
 						srv_desc.format = format::r32_float; // Same format as backup texture, as set in 'track_depth_stencil_for_backup'
 
+					// 创建resource view， 根据resource ，resource usage， resource view desc
 					if (!device->create_resource_view(depth_stencil_backup->backup_texture, resource_usage::shader_resource, srv_desc, &data.selected_shader_resource))
 						break;
 				}
@@ -1069,6 +1124,7 @@ static void on_begin_render_effects(effect_runtime *runtime, command_list *cmd_l
 				{
 					if (best_match_desc.texture.samples > 1)
 					{
+						// 检查设备是否支持深度模版解析
 						assert(device->check_capability(device_caps::resolve_depth_stencil));
 
 						cmd_list->barrier(best_match, old_state, resource_usage::resolve_source);
@@ -1421,7 +1477,9 @@ void register_addon_depth()
 	reshade::register_event<reshade::addon_event::destroy_command_queue>(on_destroy_command_queue);
 	reshade::register_event<reshade::addon_event::destroy_effect_runtime>(on_destroy_effect_runtime);
 
+	// on_create_resource 在资源创建之前会经过这个回调函数，判断如果是surface或者texture2d的话，那么就修改其format并且让shader能够访问
 	reshade::register_event<reshade::addon_event::create_resource>(on_create_resource);
+	// on_create_resource_view 在创建resource view之前被运行，一般是先创建资源再创建视图
 	reshade::register_event<reshade::addon_event::create_resource_view>(on_create_resource_view);
 	reshade::register_event<reshade::addon_event::destroy_resource>(on_destroy_resource);
 

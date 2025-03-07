@@ -219,7 +219,7 @@ bool reshade::runtime::get_annotation_bool_from_uniform_variable(api::effect_uni
 		const std::string_view name(name_in);
 
 		if (const auto it = std::find_if(variable.annotations.cbegin(), variable.annotations.cend(),
-				[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
+			[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
 			it != variable.annotations.cend())
 		{
 			for (size_t i = 0; i < count; ++i)
@@ -240,7 +240,7 @@ bool reshade::runtime::get_annotation_float_from_uniform_variable(api::effect_un
 		const std::string_view name(name_in);
 
 		if (const auto it = std::find_if(variable.annotations.cbegin(), variable.annotations.cend(),
-				[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
+			[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
 			it != variable.annotations.cend())
 		{
 			for (size_t i = 0; i < count; ++i)
@@ -261,7 +261,7 @@ bool reshade::runtime::get_annotation_int_from_uniform_variable(api::effect_unif
 		const std::string_view name(name_in);
 
 		if (const auto it = std::find_if(variable.annotations.cbegin(), variable.annotations.cend(),
-				[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
+			[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
 			it != variable.annotations.cend())
 		{
 			for (size_t i = 0; i < count; ++i)
@@ -282,7 +282,7 @@ bool reshade::runtime::get_annotation_uint_from_uniform_variable(api::effect_uni
 		const std::string_view name(name_in);
 
 		if (const auto it = std::find_if(variable.annotations.cbegin(), variable.annotations.cend(),
-				[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
+			[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
 			it != variable.annotations.cend())
 		{
 			for (size_t i = 0; i < count; ++i)
@@ -303,7 +303,7 @@ bool reshade::runtime::get_annotation_string_from_uniform_variable(api::effect_u
 		const std::string_view name(name_in);
 
 		if (const auto it = std::find_if(variable.annotations.cbegin(), variable.annotations.cend(),
-				[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
+			[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
 			it != variable.annotations.cend())
 		{
 			const std::string_view annotation = variable.annotation_as_string(name);
@@ -473,9 +473,9 @@ void reshade::runtime::enumerate_texture_variables(const char *effect_name_in, v
 	{
 		if (effect_name_in != nullptr &&
 			std::find_if(variable.shared.cbegin(), variable.shared.cend(),
-				[&](size_t effect_index) {
-					return _effects[effect_index].source_file.filename() == effect_name;
-				}) == variable.shared.cend())
+			[&](size_t effect_index) {
+				return _effects[effect_index].source_file.filename() == effect_name;
+			}) == variable.shared.cend())
 			continue;
 
 		callback(this, { reinterpret_cast<uintptr_t>(&variable) }, user_data);
@@ -494,9 +494,9 @@ reshade::api::effect_texture_variable reshade::runtime::find_texture_variable(co
 	{
 		if (effect_name_in != nullptr &&
 			std::find_if(variable.shared.cbegin(), variable.shared.cend(),
-				[&](size_t effect_index) {
-					return _effects[effect_index].source_file.filename() == effect_name;
-				}) == variable.shared.cend())
+			[&](size_t effect_index) {
+				return _effects[effect_index].source_file.filename() == effect_name;
+			}) == variable.shared.cend())
 			continue;
 
 		if (variable.name != variable_name && variable.unique_name != variable_name)
@@ -564,7 +564,7 @@ bool reshade::runtime::get_annotation_bool_from_texture_variable(api::effect_tex
 		const std::string_view name(name_in);
 
 		if (const auto it = std::find_if(variable.annotations.cbegin(), variable.annotations.cend(),
-				[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
+			[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
 			it != variable.annotations.cend())
 		{
 			for (size_t i = 0; i < count; ++i)
@@ -585,7 +585,7 @@ bool reshade::runtime::get_annotation_float_from_texture_variable(api::effect_te
 		const std::string_view name(name_in);
 
 		if (const auto it = std::find_if(variable.annotations.cbegin(), variable.annotations.cend(),
-				[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
+			[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
 			it != variable.annotations.cend())
 		{
 			for (size_t i = 0; i < count; ++i)
@@ -606,7 +606,7 @@ bool reshade::runtime::get_annotation_int_from_texture_variable(api::effect_text
 		const std::string_view name(name_in);
 
 		if (const auto it = std::find_if(variable.annotations.cbegin(), variable.annotations.cend(),
-				[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
+			[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
 			it != variable.annotations.cend())
 		{
 			for (size_t i = 0; i < count; ++i)
@@ -627,7 +627,7 @@ bool reshade::runtime::get_annotation_uint_from_texture_variable(api::effect_tex
 		const std::string_view name(name_in);
 
 		if (const auto it = std::find_if(variable.annotations.cbegin(), variable.annotations.cend(),
-				[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
+			[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
 			it != variable.annotations.cend())
 		{
 			for (size_t i = 0; i < count; ++i)
@@ -648,7 +648,7 @@ bool reshade::runtime::get_annotation_string_from_texture_variable(api::effect_t
 		const std::string_view name(name_in);
 
 		if (const auto it = std::find_if(variable.annotations.cbegin(), variable.annotations.cend(),
-				[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
+			[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
 			it != variable.annotations.cend())
 		{
 			const std::string_view annotation = variable.annotation_as_string(name);
@@ -684,10 +684,16 @@ void reshade::runtime::update_texture(api::effect_texture_variable handle, const
 	update_texture(*variable, width, height, 1, pixels);
 }
 
+// 通过 texture 拿到对应的 Shader resource view
 void reshade::runtime::get_texture_binding(api::effect_texture_variable handle, api::resource_view *out_srv, api::resource_view *out_srv_srgb) const
 {
+	// 将handle转化为 texture 对象的指针并赋给variable
 	if (const auto variable = reinterpret_cast<const texture *>(handle.handle))
 	{
+		// 如果说 texture 的semantic信息为空， 从texture中获取起 resource view
+		// srv => shader resource view 
+		// rtv => render resource view
+		// DSV => depth-stencil view 
 		if (variable->semantic.empty())
 		{
 			if (out_srv != nullptr)
@@ -695,6 +701,7 @@ void reshade::runtime::get_texture_binding(api::effect_texture_variable handle, 
 			if (out_srv_srgb != nullptr)
 				*out_srv_srgb = variable->srv[1];
 		}
+		// 如果有semantic，那么从 _texture_semantic_bindings 拿到对应semantic的 resource view
 		else if (const auto it = _texture_semantic_bindings.find(variable->semantic);
 			it != _texture_semantic_bindings.end())
 		{
@@ -884,11 +891,11 @@ bool reshade::runtime::get_annotation_bool_from_technique(api::effect_technique 
 {
 	if (handle.handle != 0 && name_in != nullptr)
 	{
-		const auto& tech = *reinterpret_cast<const technique *>(handle.handle);
+		const auto &tech = *reinterpret_cast<const technique *>(handle.handle);
 		const std::string_view name(name_in);
 
 		if (const auto it = std::find_if(tech.annotations.cbegin(), tech.annotations.cend(),
-				[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
+			[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
 			it != tech.annotations.cend())
 		{
 			for (size_t i = 0; i < count; ++i)
@@ -909,7 +916,7 @@ bool reshade::runtime::get_annotation_float_from_technique(api::effect_technique
 		const std::string_view name(name_in);
 
 		if (const auto it = std::find_if(tech.annotations.cbegin(), tech.annotations.cend(),
-				[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
+			[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
 			it != tech.annotations.cend())
 		{
 			for (size_t i = 0; i < count; ++i)
@@ -930,7 +937,7 @@ bool reshade::runtime::get_annotation_int_from_technique(api::effect_technique h
 		const std::string_view name(name_in);
 
 		if (const auto it = std::find_if(tech.annotations.cbegin(), tech.annotations.cend(),
-				[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
+			[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
 			it != tech.annotations.cend())
 		{
 			for (size_t i = 0; i < count; ++i)
@@ -951,7 +958,7 @@ bool reshade::runtime::get_annotation_uint_from_technique(api::effect_technique 
 		const std::string_view name(name_in);
 
 		if (const auto it = std::find_if(tech.annotations.cbegin(), tech.annotations.cend(),
-				[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
+			[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
 			it != tech.annotations.cend())
 		{
 			for (size_t i = 0; i < count; ++i)
@@ -972,7 +979,7 @@ bool reshade::runtime::get_annotation_string_from_technique(api::effect_techniqu
 		const std::string_view name(name_in);
 
 		if (const auto it = std::find_if(tech.annotations.cbegin(), tech.annotations.cend(),
-				[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
+			[&](const reshadefx::annotation &annotation) { return annotation.name == name; });
 			it != tech.annotations.cend())
 		{
 			const std::string_view annotation = tech.annotation_as_string(name);
@@ -1060,7 +1067,7 @@ void reshade::runtime::set_preprocessor_definition_for_effect(const char *effect
 				preset_it != _preset_preprocessor_definitions.end() && !preset_it->second.empty())
 			{
 				if (const auto it = std::remove_if(preset_it->second.begin(), preset_it->second.end(),
-						[name = std::string_view(name)](const std::pair<std::string, std::string> &definition) { return definition.first == name; });
+					[name = std::string_view(name)](const std::pair<std::string, std::string> &definition) { return definition.first == name; });
 					it != preset_it->second.end())
 				{
 					preset_it->second.erase(it, preset_it->second.end());
@@ -1074,7 +1081,7 @@ void reshade::runtime::set_preprocessor_definition_for_effect(const char *effect
 				preset_it != _preset_preprocessor_definitions.end() && !preset_it->second.empty())
 			{
 				if (const auto it = std::remove_if(preset_it->second.begin(), preset_it->second.end(),
-						[name = std::string_view(name)](const std::pair<std::string, std::string> &definition) { return definition.first == name; });
+					[name = std::string_view(name)](const std::pair<std::string, std::string> &definition) { return definition.first == name; });
 					it != preset_it->second.end())
 				{
 					preset_it->second.erase(it, preset_it->second.end());
@@ -1085,7 +1092,7 @@ void reshade::runtime::set_preprocessor_definition_for_effect(const char *effect
 		if ((scope_mask & GLOBAL_SCOPE_FLAG) != 0)
 		{
 			if (const auto it = std::remove_if(_global_preprocessor_definitions.begin(), _global_preprocessor_definitions.end(),
-					[name = std::string_view(name)](const std::pair<std::string, std::string> &definition) { return definition.first == name; });
+				[name = std::string_view(name)](const std::pair<std::string, std::string> &definition) { return definition.first == name; });
 				it != _global_preprocessor_definitions.end())
 			{
 				_global_preprocessor_definitions.erase(it, _global_preprocessor_definitions.end());
@@ -1101,7 +1108,7 @@ void reshade::runtime::set_preprocessor_definition_for_effect(const char *effect
 				preset_it != _preset_preprocessor_definitions.end())
 			{
 				if (auto it = std::find_if(preset_it->second.begin(), preset_it->second.end(),
-						[name = std::string_view(name)](const std::pair<std::string, std::string> &definition) { return definition.first == name; });
+					[name = std::string_view(name)](const std::pair<std::string, std::string> &definition) { return definition.first == name; });
 					it != preset_it->second.end())
 				{
 					if (value != it->second)
@@ -1118,60 +1125,60 @@ void reshade::runtime::set_preprocessor_definition_for_effect(const char *effect
 			}
 		}
 		else
-		if (scope_mask == PRESET_SCOPE_FLAG)
-		{
-			if (const auto preset_it = _preset_preprocessor_definitions.find({});
-				preset_it != _preset_preprocessor_definitions.end())
+			if (scope_mask == PRESET_SCOPE_FLAG)
 			{
-				if (auto it = std::find_if(preset_it->second.begin(), preset_it->second.end(),
-						[name = std::string_view(name)](const std::pair<std::string, std::string> &definition) { return definition.first == name; });
-					it != preset_it->second.end())
+				if (const auto preset_it = _preset_preprocessor_definitions.find({});
+					preset_it != _preset_preprocessor_definitions.end())
 				{
-					if (value != it->second)
+					if (auto it = std::find_if(preset_it->second.begin(), preset_it->second.end(),
+						[name = std::string_view(name)](const std::pair<std::string, std::string> &definition) { return definition.first == name; });
+						it != preset_it->second.end())
 					{
-						it->second = value;
+						if (value != it->second)
+						{
+							it->second = value;
+							scope_mask_updated = PRESET_SCOPE_FLAG;
+						}
+					}
+					else
+					{
+						preset_it->second.emplace_back(name, value);
 						scope_mask_updated = PRESET_SCOPE_FLAG;
+					}
+				}
+			}
+			else
+				if (scope_mask == GLOBAL_SCOPE_FLAG)
+				{
+					if (const auto it = std::find_if(_global_preprocessor_definitions.begin(), _global_preprocessor_definitions.end(),
+						[name = std::string_view(name)](const std::pair<std::string, std::string> &definition) { return definition.first == name; });
+						it != _global_preprocessor_definitions.end())
+					{
+						if (value != it->second)
+						{
+							it->second = value;
+							scope_mask_updated = GLOBAL_SCOPE_FLAG;
+						}
+					}
+					else
+					{
+						_global_preprocessor_definitions.emplace_back(name, value);
+						scope_mask_updated = GLOBAL_SCOPE_FLAG;
 					}
 				}
 				else
 				{
-					preset_it->second.emplace_back(name, value);
+					std::vector<std::pair<std::string, std::string>> *definition_scope = nullptr;
+					std::vector<std::pair<std::string, std::string>>::iterator definition_it;
+
+					if (get_preprocessor_definition(effect_name, name, scope_mask, definition_scope, definition_it) &&
+						definition_scope != &_global_preprocessor_definitions && (effect_name.empty() || definition_scope != &_preset_preprocessor_definitions[{}]))
+						definition_it->second = value;
+					else
+						_preset_preprocessor_definitions[effect_name].emplace_back(name, value);
+
 					scope_mask_updated = PRESET_SCOPE_FLAG;
 				}
-			}
-		}
-		else
-		if (scope_mask == GLOBAL_SCOPE_FLAG)
-		{
-			if (const auto it = std::find_if(_global_preprocessor_definitions.begin(), _global_preprocessor_definitions.end(),
-					[name = std::string_view(name)](const std::pair<std::string, std::string> &definition) { return definition.first == name; });
-				it != _global_preprocessor_definitions.end())
-			{
-				if (value != it->second)
-				{
-					it->second = value;
-					scope_mask_updated = GLOBAL_SCOPE_FLAG;
-				}
-			}
-			else
-			{
-				_global_preprocessor_definitions.emplace_back(name, value);
-				scope_mask_updated = GLOBAL_SCOPE_FLAG;
-			}
-		}
-		else
-		{
-			std::vector<std::pair<std::string, std::string>> *definition_scope = nullptr;
-			std::vector<std::pair<std::string, std::string>>::iterator definition_it;
-
-			if (get_preprocessor_definition(effect_name, name, scope_mask, definition_scope, definition_it) &&
-				definition_scope != &_global_preprocessor_definitions && (effect_name.empty() || definition_scope != &_preset_preprocessor_definitions[{}]))
-				definition_it->second = value;
-			else
-				_preset_preprocessor_definitions[effect_name].emplace_back(name, value);
-
-			scope_mask_updated = PRESET_SCOPE_FLAG;
-		}
 	}
 
 	if (scope_mask_updated != 0)
@@ -1181,7 +1188,7 @@ void reshade::runtime::set_preprocessor_definition_for_effect(const char *effect
 			ini_file::load_cache(_config_path).set("GENERAL", "PreprocessorDefinitions", _global_preprocessor_definitions);
 		}
 
-		reload_effect_next_frame((scope_mask_updated &(GLOBAL_SCOPE_FLAG | PRESET_SCOPE_FLAG)) != 0 ? nullptr : effect_name.c_str());
+		reload_effect_next_frame((scope_mask_updated & (GLOBAL_SCOPE_FLAG | PRESET_SCOPE_FLAG)) != 0 ? nullptr : effect_name.c_str());
 	}
 }
 bool reshade::runtime::get_preprocessor_definition(const char *name, char *value, size_t *size) const
@@ -1206,14 +1213,14 @@ bool reshade::runtime::get_preprocessor_definition_for_effect(const char *effect
 		std::vector<std::string> definitions;
 
 		const auto emplace_to_list = [&estimate_size, &definitions](const std::pair<std::string, std::string> &adding)
-		{
-			if (std::all_of(definitions.cbegin(), definitions.cend(),
-					[&adding](const std::string &added) { return added != adding.first; }))
 			{
-				estimate_size += adding.first.size() + 1; // '\0'
-				definitions.emplace_back(adding.first);
-			}
-		};
+				if (std::all_of(definitions.cbegin(), definitions.cend(),
+					[&adding](const std::string &added) { return added != adding.first; }))
+				{
+					estimate_size += adding.first.size() + 1; // '\0'
+					definitions.emplace_back(adding.first);
+				}
+			};
 
 		if ((scope_mask & EFFECT_SCOPE_FLAG) != 0)
 		{
@@ -1284,20 +1291,20 @@ bool reshade::runtime::get_preprocessor_definition_for_effect(const char *effect
 bool reshade::runtime::get_preprocessor_definition(const std::string &effect_name, const std::string &name, int scope_mask, std::vector<std::pair<std::string, std::string>> *&scope, std::vector<std::pair<std::string, std::string>>::iterator &value) const
 {
 	const auto find_preprocessor_definition = [&name, &scope, &value](std::vector<std::pair<std::string, std::string>> &definitions)
-	{
-		if (value = std::find_if(definitions.begin(), definitions.end(),
+		{
+			if (value = std::find_if(definitions.begin(), definitions.end(),
 				[&name](const std::pair<std::string, std::string> &definition) { return definition.first == name; });
-			value != definitions.end())
-		{
-			scope = &definitions;
-			return true;
-		}
-		else
-		{
-			scope = nullptr;
-			return false;
-		}
-	};
+				value != definitions.end())
+			{
+				scope = &definitions;
+				return true;
+			}
+			else
+			{
+				scope = nullptr;
+				return false;
+			}
+		};
 
 	if ((scope_mask & EFFECT_SCOPE_FLAG) != 0)
 	{
@@ -1541,9 +1548,9 @@ void reshade::runtime::reload_effect_next_frame(const char *effect_name)
 	}
 
 	if (auto it = std::find_if(_effects.cbegin(), _effects.cend(),
-			[effect_name = std::filesystem::u8path(effect_name)](const effect &effect) {
-				return effect.source_file.filename() == effect_name;
-			});
+		[effect_name = std::filesystem::u8path(effect_name)](const effect &effect) {
+			return effect.source_file.filename() == effect_name;
+		});
 		it != _effects.cend())
 	{
 		const size_t effect_index = std::distance(_effects.cbegin(), it);

@@ -94,9 +94,9 @@ bool save_texture_image(const resource_desc &desc, const subresource_data &data)
 	const uint32_t hash = ~compute_crc32(
 		static_cast<const uint8_t *>(data.data),
 		desc.texture.height * static_cast<size_t>(
-			(desc.texture.format >= format::bc1_typeless && desc.texture.format <= format::bc1_unorm_srgb) || (desc.texture.format >= format::bc4_typeless && desc.texture.format <= format::bc4_snorm) ? (desc.texture.width * 4) / 8 :
-			(desc.texture.format >= format::bc2_typeless && desc.texture.format <= format::bc2_unorm_srgb) || (desc.texture.format >= format::bc3_typeless && desc.texture.format <= format::bc3_unorm_srgb) || (desc.texture.format >= format::bc5_typeless && desc.texture.format <= format::bc7_unorm_srgb) ? desc.texture.width :
-			format_row_pitch(desc.texture.format, desc.texture.width)));
+		(desc.texture.format >= format::bc1_typeless && desc.texture.format <= format::bc1_unorm_srgb) || (desc.texture.format >= format::bc4_typeless && desc.texture.format <= format::bc4_snorm) ? (desc.texture.width * 4) / 8 :
+		(desc.texture.format >= format::bc2_typeless && desc.texture.format <= format::bc2_unorm_srgb) || (desc.texture.format >= format::bc3_typeless && desc.texture.format <= format::bc3_unorm_srgb) || (desc.texture.format >= format::bc5_typeless && desc.texture.format <= format::bc7_unorm_srgb) ? desc.texture.width :
+		format_row_pitch(desc.texture.format, desc.texture.width)));
 #else
 	// Correct hash calculation using entire resource data
 	const uint32_t hash = compute_crc32(
@@ -290,8 +290,8 @@ bool save_texture_image(const resource_desc &desc, const subresource_data &data)
 				const uint8_t  alpha_0 = src[0];
 				const uint8_t  alpha_1 = src[1];
 				const uint64_t alpha_i =
-					(static_cast<uint64_t>(src[2])      ) |
-					(static_cast<uint64_t>(src[3]) <<  8) |
+					(static_cast<uint64_t>(src[2])) |
+					(static_cast<uint64_t>(src[3]) << 8) |
 					(static_cast<uint64_t>(src[4]) << 16) |
 					(static_cast<uint64_t>(src[5]) << 24) |
 					(static_cast<uint64_t>(src[6]) << 32) |
@@ -332,8 +332,8 @@ bool save_texture_image(const resource_desc &desc, const subresource_data &data)
 				const uint8_t  red_0 = src[0];
 				const uint8_t  red_1 = src[1];
 				const uint64_t red_i =
-					(static_cast<uint64_t>(src[2])      ) |
-					(static_cast<uint64_t>(src[3]) <<  8) |
+					(static_cast<uint64_t>(src[2])) |
+					(static_cast<uint64_t>(src[3]) << 8) |
 					(static_cast<uint64_t>(src[4]) << 16) |
 					(static_cast<uint64_t>(src[5]) << 24) |
 					(static_cast<uint64_t>(src[6]) << 32) |
@@ -367,8 +367,8 @@ bool save_texture_image(const resource_desc &desc, const subresource_data &data)
 				const uint8_t  red_0 = src[0];
 				const uint8_t  red_1 = src[1];
 				const uint64_t red_i =
-					(static_cast<uint64_t>(src[2])      ) |
-					(static_cast<uint64_t>(src[3]) <<  8) |
+					(static_cast<uint64_t>(src[2])) |
+					(static_cast<uint64_t>(src[3]) << 8) |
 					(static_cast<uint64_t>(src[4]) << 16) |
 					(static_cast<uint64_t>(src[5]) << 24) |
 					(static_cast<uint64_t>(src[6]) << 32) |
@@ -377,8 +377,8 @@ bool save_texture_image(const resource_desc &desc, const subresource_data &data)
 				const uint8_t  green_0 = src[8];
 				const uint8_t  green_1 = src[9];
 				const uint64_t green_i =
-					(static_cast<uint64_t>(src[10])      ) |
-					(static_cast<uint64_t>(src[11]) <<  8) |
+					(static_cast<uint64_t>(src[10])) |
+					(static_cast<uint64_t>(src[11]) << 8) |
 					(static_cast<uint64_t>(src[12]) << 16) |
 					(static_cast<uint64_t>(src[13]) << 24) |
 					(static_cast<uint64_t>(src[14]) << 32) |
@@ -409,7 +409,7 @@ bool save_texture_image(const resource_desc &desc, const subresource_data &data)
 	GetModuleFileNameW(nullptr, file_prefix, ARRAYSIZE(file_prefix));
 
 	std::filesystem::path dump_path = file_prefix;
-	dump_path  = dump_path.parent_path();
+	dump_path = dump_path.parent_path();
 	dump_path /= RESHADE_ADDON_TEXTURE_SAVE_DIR;
 
 	if (std::filesystem::exists(dump_path) == false)

@@ -513,6 +513,7 @@ namespace reshade { namespace api
 			return 16 * width;
 		if (value <= format::r32g32b32_sint)
 			return 12 * width;
+		// D32S8(d32_float_s8_uint) 可能在这里
 		if (value <= format::x32_float_g8_uint)
 			return  8 * width;
 		if (value <= format::x24_unorm_g8_uint || value == format::l16a16_unorm)

@@ -263,6 +263,7 @@ namespace reshade { namespace api
 		/// <remarks>
 		/// This function may NOT be called concurrently from multiple threads!
 		/// </remarks>
+		// 输入是私有数据的 uuid 和指向该数据的指针
 		virtual     void set_private_data(const uint8_t guid[16], const uint64_t data)  = 0;
 
 		/// <summary>
@@ -279,9 +280,15 @@ namespace reshade { namespace api
 		/// Allocates user-defined data and stores it in the object.
 		/// </summary>
 		template <typename T, typename... Args>
+		// 最后返回的是指向 T 类型的指针
 		T *create_private_data(Args &&... args)
 		{
+			// 创建一个新的 T 对象，并且将其 set 成 private data
+			// new T(static_cast<Args &&>(args)...) 返回一个指向该对象的T类型指针
+			// reinterpret_cast 将该指针强制转换为 uintptr_t 类型数字， uintptr_t 类似 int 类型, 会根据不同的操作系统分配不同的位数 win x64 => 64位.
+			// res => 将结果转为 uint64_t 实际就是 (typedef unsigned long long) 也是64位， 不过他们都是数字占64位，转化为指针的话就会指向 这个T类型
 			uint64_t res = reinterpret_cast<uintptr_t>(new T(static_cast<Args &&>(args)...));
+			// 根据数字和 uuid， 存储 private data
 			set_private_data(reinterpret_cast<const uint8_t *>(&__uuidof(T)),  res);
 			return reinterpret_cast<T *>(static_cast<uintptr_t>(res));
 		}
