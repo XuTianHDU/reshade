@@ -49,7 +49,7 @@
   <PropertyGroup>
     <OutDir>..\..\bin\$(Platform)\$(Configuration) Examples\</OutDir>
     <IntDir>..\..\intermediate\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
-    <TargetName>generic_depth</TargetName>
+    <TargetName>generic_depth_for_log</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Platform)'=='Win32'">
     <TargetExt>.addon32</TargetExt>

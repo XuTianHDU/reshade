@@ -12,6 +12,7 @@
 #include <cstring> // std::strcmp
 #include <algorithm> // std::find_if, std::remove, std::sort
 #include <Unknwn.h>
+#include <string>
 
 using namespace reshade::api;
 
@@ -632,7 +633,7 @@ static bool on_create_resource(device *device, resource_desc &desc, subresource_
 	if (desc.type != resource_type::surface && desc.type != resource_type::texture_2d)
 		return false; // Skip resources that are not 2D textures
 
-	reshade::log::message(reshade::log::level::warning, "format is %s (numeric value: %d)", format_to_string(desc.texture.format), static_cast<int>(desc.texture.format));
+	reshade::log::message(reshade::log::level::warning, std::string("format is ").append(format_to_string(desc.texture.format)).append(" (numeric value: ").append(std::to_string(static_cast<int>(desc.texture.format))).append(")").c_str());
 	// 如果使用1：多重采样+不支持深度模版解析
 	// 2. 不用作深度模板的资源
 	// 3. 只含模板信息的资源 直接跳过
@@ -1565,7 +1566,7 @@ void unregister_addon_depth()
 
 #ifndef BUILTIN_ADDON
 
-extern "C" __declspec(dllexport) const char *NAME = "Generic Depth";
+extern "C" __declspec(dllexport) const char *NAME = "Generic Depth for log";
 extern "C" __declspec(dllexport) const char *DESCRIPTION = "Automatic depth buffer detection that works in the majority of games.";
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
