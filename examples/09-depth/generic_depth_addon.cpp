@@ -396,6 +396,35 @@ static bool check_aspect_ratio(float width_to_check, float height_to_check, floa
 		(s_aspect_ratio_heuristic == aspect_ratio_heuristic::multiples_of_resolution && std::modf(w_ratio, &w_ratio) <= 0.02f && std::modf(h_ratio, &h_ratio) <= 0.02f));
 }
 
+
+static const char *const format_to_string(format format)
+{
+	switch (format)
+	{
+	case format::d16_unorm:
+	case format::r16_typeless:
+		return "D16  ";
+	case format::d16_unorm_s8_uint:
+		return "D16S8";
+	case format::d24_unorm_x8_uint:
+		return "D24X8";
+	case format::d24_unorm_s8_uint:
+	case format::r24_g8_typeless:
+		return "D24S8";
+	case format::d32_float:
+	case format::r32_float:
+	case format::r32_typeless:
+		return "D32  ";
+	case format::d32_float_s8_uint:
+	case format::r32_g8_typeless:
+		return "D32S8";
+	case format::intz:
+		return "INTZ ";
+	default:
+		return "     ";
+	}
+}
+
 // 在clear depth stencil的时候，会调用这个函数，在清除之前，会进行备份
 static void on_clear_depth_impl(command_list *cmd_list, state_tracking &state, resource depth_stencil, clear_op op)
 {
@@ -603,8 +632,7 @@ static bool on_create_resource(device *device, resource_desc &desc, subresource_
 	if (desc.type != resource_type::surface && desc.type != resource_type::texture_2d)
 		return false; // Skip resources that are not 2D textures
 
-	reshade::log::message(reshade::log::level::warning, "format is %s", format_to_string(desc.texture.format));
-	reshade::log::message(reshade::log::level::warning, "format number is %d", desc.texture.format);
+	reshade::log::message(reshade::log::level::warning, "format is %s (numeric value: %d)", format_to_string(desc.texture.format), static_cast<int>(desc.texture.format));
 	// 如果使用1：多重采样+不支持深度模版解析
 	// 2. 不用作深度模板的资源
 	// 3. 只含模板信息的资源 直接跳过
@@ -1201,33 +1229,7 @@ static void on_finish_render_effects(effect_runtime *runtime, command_list *cmd_
 	}
 }
 
-static const char *const format_to_string(format format)
-{
-	switch (format)
-	{
-	case format::d16_unorm:
-	case format::r16_typeless:
-		return "D16  ";
-	case format::d16_unorm_s8_uint:
-		return "D16S8";
-	case format::d24_unorm_x8_uint:
-		return "D24X8";
-	case format::d24_unorm_s8_uint:
-	case format::r24_g8_typeless:
-		return "D24S8";
-	case format::d32_float:
-	case format::r32_float:
-	case format::r32_typeless:
-		return "D32  ";
-	case format::d32_float_s8_uint:
-	case format::r32_g8_typeless:
-		return "D32S8";
-	case format::intz:
-		return "INTZ ";
-	default:
-		return "     ";
-	}
-}
+
 
 static void draw_settings_overlay(effect_runtime *runtime)
 {
