@@ -13,6 +13,7 @@
 #include <algorithm> // std::find_if, std::remove, std::sort
 #include <Unknwn.h>
 #include <string>
+#include <sstream> // For std::stringstream
 
 using namespace reshade::api;
 
@@ -637,7 +638,17 @@ static bool on_create_resource(device *device, resource_desc &desc, subresource_
 	// 2. 不用作深度模板的资源
 	// 3. 只含模板信息的资源 直接跳过
 	if ((desc.texture.samples > 1 && !device->check_capability(device_caps::resolve_depth_stencil)) || (desc.usage & resource_usage::depth_stencil) == 0 || desc.texture.format == format::s8_uint)
+	{
+		std::stringstream ss;
+		ss << "desc.usage is samples=" << desc.texture.samples
+			<< " device_caps_resolve_depth_stencil=" << device->check_capability(device_caps::resolve_depth_stencil)
+			<< " depth_stencil=" << std::to_string(static_cast<int>(desc.usage & resource_usage::depth_stencil))
+			<< " depth_stencil_read=" << std::to_string(static_cast<int>(desc.usage & resource_usage::depth_stencil_read))
+			<< " depth_stencil_write=" << std::to_string(static_cast<int>(desc.usage & resource_usage::depth_stencil_write))
+			<< " format=" << static_cast<int>(desc.texture.format);
+		reshade::log::message(reshade::log::level::warning, ss.str().c_str());
 		return false; // Skip multisampled textures and resources that are not used as depth buffers
+	}
 	
 	reshade::log::message(reshade::log::level::warning, std::string("format is ").append(format_to_string(desc.texture.format)).append(" (numeric value: ").append(std::to_string(static_cast<int>(desc.texture.format))).append(")").c_str());
 
