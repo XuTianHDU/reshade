@@ -633,12 +633,13 @@ static bool on_create_resource(device *device, resource_desc &desc, subresource_
 	if (desc.type != resource_type::surface && desc.type != resource_type::texture_2d)
 		return false; // Skip resources that are not 2D textures
 
-	reshade::log::message(reshade::log::level::warning, std::string("format is ").append(format_to_string(desc.texture.format)).append(" (numeric value: ").append(std::to_string(static_cast<int>(desc.texture.format))).append(")").c_str());
 	// 如果使用1：多重采样+不支持深度模版解析
 	// 2. 不用作深度模板的资源
 	// 3. 只含模板信息的资源 直接跳过
 	if ((desc.texture.samples > 1 && !device->check_capability(device_caps::resolve_depth_stencil)) || (desc.usage & resource_usage::depth_stencil) == 0 || desc.texture.format == format::s8_uint)
 		return false; // Skip multisampled textures and resources that are not used as depth buffers
+	
+	reshade::log::message(reshade::log::level::warning, std::string("format is ").append(format_to_string(desc.texture.format)).append(" (numeric value: ").append(std::to_string(static_cast<int>(desc.texture.format))).append(")").c_str());
 
 	switch (device->get_api())
 	{
