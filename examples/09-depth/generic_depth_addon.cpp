@@ -352,6 +352,7 @@ struct __declspec(uuid("e006e162-33ac-4b9f-b10f-0e15335c7bdb")) generic_depth_de
 	}
 };
 
+// 检查深度缓冲区的格式是否符合要求，这个要求是通过用户在交互界面设置的
 static bool check_depth_format(format format)
 {
 	switch (s_format_filtering)
@@ -375,6 +376,7 @@ static bool check_depth_format(format format)
 	}
 }
 // Checks whether the aspect ratio of the two sets of dimensions is similar or not
+// 这个也是检查aspect ratio的，和上面的check_depth_format类似，都是通过交互界面进行设置
 static bool check_aspect_ratio(float width_to_check, float height_to_check, float width, float height)
 {
 	if (width_to_check == 0.0f || height_to_check == 0.0f)
@@ -394,6 +396,7 @@ static bool check_aspect_ratio(float width_to_check, float height_to_check, floa
 		(s_aspect_ratio_heuristic == aspect_ratio_heuristic::multiples_of_resolution && std::modf(w_ratio, &w_ratio) <= 0.02f && std::modf(h_ratio, &h_ratio) <= 0.02f));
 }
 
+// 在clear depth stencil的时候，会调用这个函数，在清除之前，会进行备份
 static void on_clear_depth_impl(command_list *cmd_list, state_tracking &state, resource depth_stencil, clear_op op)
 {
 	if (depth_stencil == 0)
@@ -427,17 +430,20 @@ static void on_clear_depth_impl(command_list *cmd_list, state_tracking &state, r
 	switch (op)
 	{
 	case clear_op::clear_depth_stencil_view:
+		// 清除深度模版缓冲区
 		// Mirror's Edge and Portal occasionally render something into a small viewport (16x16 in Mirror's Edge, 512x512 in Portal to render underwater geometry)
 		do_copy = current_stats.last_viewport.width > 1024 || (current_stats.last_viewport.width == 0 || depth_stencil_backup->frame_width <= 1024);
 		break;
 	case clear_op::fullscreen_draw:
+		// 全屏绘制
 		// Mass Effect 3 in Mass Effect Legendary Edition sometimes uses a larger common depth buffer for shadow map and scene rendering, where the former uses a 1024x1024 viewport and the latter uses a viewport matching the render resolution
 		do_copy = check_aspect_ratio(current_stats.last_viewport.width, current_stats.last_viewport.height, static_cast<float>(depth_stencil_backup->frame_width), static_cast<float>(depth_stencil_backup->frame_height));
 		break;
 	case clear_op::unbind_depth_stencil_view:
+		// 解除深度模版缓冲区的绑定
 		break;
 	}
-
+	// 如果需要进行备份
 	if (do_copy)
 	{
 		if (op != clear_op::unbind_depth_stencil_view)
@@ -495,10 +501,12 @@ static void on_clear_depth_impl(command_list *cmd_list, state_tracking &state, r
 	}
 }
 
+
 static void update_effect_runtime(effect_runtime *runtime)
 {
 	const auto &data = *runtime->get_private_data<generic_depth_data>();
 
+	// 将备份的深度纹理(selected_shader_resource)绑定到着色器中名为"DEPTH"的采样器
 	runtime->update_texture_bindings("DEPTH", data.selected_shader_resource, data.selected_shader_resource);
 
 	runtime->enumerate_uniform_variables(nullptr, [&data](effect_runtime *runtime, effect_uniform_variable variable) {
@@ -595,6 +603,8 @@ static bool on_create_resource(device *device, resource_desc &desc, subresource_
 	if (desc.type != resource_type::surface && desc.type != resource_type::texture_2d)
 		return false; // Skip resources that are not 2D textures
 
+	reshade::log::message(reshade::log::level::warning, "format is %s", format_to_string(desc.texture.format));
+	reshade::log::message(reshade::log::level::warning, "format number is %d", desc.texture.format);
 	// 如果使用1：多重采样+不支持深度模版解析
 	// 2. 不用作深度模板的资源
 	// 3. 只含模板信息的资源 直接跳过
@@ -1223,6 +1233,7 @@ static void draw_settings_overlay(effect_runtime *runtime)
 {
 	bool force_reset = false;
 
+	// 绘制深度统计启发式选择
 	const char *const draw_stats_heuristic_items[] = {
 		"Default",
 		"Higher vertices",
@@ -1234,6 +1245,7 @@ static void draw_settings_overlay(effect_runtime *runtime)
 		force_reset = true;
 	}
 
+	// 绘制深度缓冲区格式选择
 	const char *const aspect_ratio_heuristic_items[] = {
 		"None",
 		"Similar aspect ratio",
@@ -1247,6 +1259,7 @@ static void draw_settings_overlay(effect_runtime *runtime)
 		force_reset = true;
 	}
 
+	// 如果需要匹配自定义的分辨率
 	if (s_aspect_ratio_heuristic == aspect_ratio_heuristic::match_custom_resolution_exactly)
 	{
 		if (ImGui::InputInt2("Filter by width and height", reinterpret_cast<int *>(s_custom_resolution_filtering)))
@@ -1257,6 +1270,7 @@ static void draw_settings_overlay(effect_runtime *runtime)
 		}
 	}
 
+	// 绘制深度缓冲区格式选择
 	const char *const depth_format_items[] = { // Needs to match switch in 'check_depth_format' above
 		"All",
 		"D16  ",
@@ -1273,6 +1287,7 @@ static void draw_settings_overlay(effect_runtime *runtime)
 		force_reset = true;
 	}
 
+	// 绘制深度缓冲区复制选择
 	if (bool copy_before_clear_operations = s_preserve_depth_buffers != 0;
 		ImGui::Checkbox("Copy depth buffer before clear operations", &copy_before_clear_operations))
 	{
@@ -1323,7 +1338,9 @@ static void draw_settings_overlay(effect_runtime *runtime)
 	};
 
 	std::vector<depth_stencil_item> sorted_item_list;
+	// sorted_item_list 预留空间，避免频繁的内存分配
 	sorted_item_list.reserve(device_data->depth_stencil_resources.size());
+	// 将device_data中的数据复制到sorted_item_list中
 	for (const auto &[resource, info] : device_data->depth_stencil_resources)
 		sorted_item_list.push_back({ resource, info.last_counters, device_data->frame_index > (info.last_used_in_frame + 5) });
 
@@ -1333,6 +1350,7 @@ static void draw_settings_overlay(effect_runtime *runtime)
 	for (depth_stencil_item &item : sorted_item_list)
 		item.desc = device->get_resource_desc(item.resource);
 
+	// 根据宽度、高度、资源句柄对sorted_item_list进行排序
 	std::sort(sorted_item_list.begin(), sorted_item_list.end(),
 		[](const depth_stencil_item &a, const depth_stencil_item &b) {
 			return ((a.desc.texture.width > b.desc.texture.width || (a.desc.texture.width == b.desc.texture.width && a.desc.texture.height > b.desc.texture.height)) ||
@@ -1348,18 +1366,23 @@ static void draw_settings_overlay(effect_runtime *runtime)
 	for (const depth_stencil_item &item : sorted_item_list)
 	{
 		bool disabled = item.unusable;
+		// 如果深度缓冲区是多重采样，并且设备不支持深度缓冲区解析，则禁用该深度缓冲区
 		if (item.desc.texture.samples > 1 && !device->check_capability(device_caps::resolve_depth_stencil)) // Disable widget for multisampled textures
 			has_msaa_depth_stencil = disabled = true;
 
 		const bool selected = item.resource == data.selected_depth_stencil;
+		// 如果深度缓冲区格式符合要求，并且aspect ratio符合要求，则启用该深度缓冲区
 		const bool candidate =
 			(s_format_filtering == 0 || check_depth_format(item.desc.texture.format)) &&
 			(s_aspect_ratio_heuristic == aspect_ratio_heuristic::none || check_aspect_ratio(static_cast<float>(item.desc.texture.width), static_cast<float>(item.desc.texture.height), static_cast<float>(frame_width), static_cast<float>(frame_height)));
 
 		char label[21];
+		// 如果当前深度区被选中，那么前面加一个 > ，否则加一个空格
 		std::snprintf(label, std::size(label), "%c 0x%016llx", (selected ? '>' : ' '), item.resource.handle);
-
+	
+		// 如果深度缓冲区不可用（比如是多重采样但设备不支持），禁用这个UI元素
 		ImGui::BeginDisabled(disabled);
+		// 如果深度缓冲区被选中，或者候选，那么设置文本颜色为按钮激活颜色，否则设置为文本颜色
 		ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[disabled ? ImGuiCol_TextDisabled : selected || candidate ? ImGuiCol_ButtonActive : ImGuiCol_Text]);
 
 		if (bool value = (item.resource == data.override_depth_stencil);
@@ -1468,6 +1491,7 @@ void register_addon_depth()
 {
 	reshade::register_overlay(nullptr, draw_settings_overlay);
 
+	// device 和 effect runtime 初始化，只执行一次
 	reshade::register_event<reshade::addon_event::init_device>(on_init_device);
 	reshade::register_event<reshade::addon_event::init_command_list>(on_init_command_list);
 	reshade::register_event<reshade::addon_event::init_command_queue>(on_init_command_queue);
@@ -1477,6 +1501,7 @@ void register_addon_depth()
 	reshade::register_event<reshade::addon_event::destroy_command_queue>(on_destroy_command_queue);
 	reshade::register_event<reshade::addon_event::destroy_effect_runtime>(on_destroy_effect_runtime);
 
+	// resource 是动态创建和销毁的，根据游戏的需求
 	// on_create_resource 在资源创建之前会经过这个回调函数，判断如果是surface或者texture2d的话，那么就修改其format并且让shader能够访问
 	reshade::register_event<reshade::addon_event::create_resource>(on_create_resource);
 	// on_create_resource_view 在创建resource view之前被运行，一般是先创建资源再创建视图
