@@ -465,7 +465,7 @@ static void on_reshade_present(effect_runtime *runtime)
 		if (enableDepthExp) {
 			save_path_c = save_path_o;
 			save_path_c += L"DepthBuffer.exr";
-			// 从runtime 中拿到 stored_buffers_inst 的指针
+			// 从 runtime 中拿到 stored_buffers_inst 的指针
 			stored_buffers_inst &sbi = runtime->get_private_data<stored_buffers_inst>();
 			tex_type = depth;
 			// 将这里的depth数据存下来

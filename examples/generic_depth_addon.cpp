@@ -14,9 +14,6 @@
 #include <Unknwn.h>
 #include <string>
 #include <sstream> // For std::stringstream
-#include <filesystem>
-#include <iostream>
-#include <opencv2/opencv.hpp>
 
 using namespace reshade::api;
 
@@ -100,10 +97,12 @@ struct resource_hash
 	}
 };
 
+// 用来跟踪命令列表或命令队列中的深度缓冲相关状态
 struct __declspec(uuid("43319e83-387c-448e-881c-7e68fc2e52c4")) state_tracking
 {
 	const bool is_queue;
 	viewport current_viewport = {};
+	// 当前跟踪的深度模版变量 resource 对象
 	resource current_depth_stencil = { 0 };
 	std::unordered_map<resource, depth_stencil_frame_stats, resource_hash> counters_per_used_depth_stencil;
 	bool first_draw_since_bind = true;
@@ -161,16 +160,20 @@ struct __declspec(uuid("43319e83-387c-448e-881c-7e68fc2e52c4")) state_tracking
 struct __declspec(uuid("7c6363c7-f94e-437a-9160-141782c44a98")) generic_depth_data
 {
 	// The depth-stencil resource that is currently selected as being the main depth target
+	// 当前选择的深度模版数据
 	resource selected_depth_stencil = { 0 };
 
 	// Resource used to override automatic depth-stencil selection
+	// 用于手动覆盖自动选择的深度缓冲资源
 	resource override_depth_stencil = { 0 };
 
 	// The current depth shader resource view bound to shaders
 	// This can be created from either the selected depth-stencil resource (if it supports shader access) or from a backup resource
+	// 当前绑定的深度缓冲区的着色器资源视图
 	resource_view selected_shader_resource = { 0 };
 
 	// True when the shader resource view was created from the backup resource, false when it was created from the original depth-stencil
+	// 标识当前的着色器资源视图是否来自备份纹理
 	bool using_backup_texture = false;
 };
 
@@ -183,9 +186,11 @@ struct depth_stencil_backup
 	uint64_t destroy_after_frame = std::numeric_limits<uint64_t>::max();
 
 	// A resource used as target for a backup copy of this depth-stencil
+	// 备份深度缓冲区的资源
 	resource backup_texture = { 0 };
 
 	// The depth-stencil that should be copied from
+	// 原始的深度缓冲区资源
 	resource depth_stencil_resource = { 0 };
 
 	// Frame dimensions of the last effect runtime this backup was used with
@@ -199,6 +204,7 @@ struct depth_stencil_backup
 
 struct depth_stencil_resource
 {
+	// 用于记录特定深度缓冲资源的使用情况
 	depth_stencil_frame_stats last_counters;
 
 	// Index of the frame in which the depth-stencil was last/first seen used in
@@ -206,31 +212,42 @@ struct depth_stencil_resource
 	uint64_t first_used_in_frame = std::numeric_limits<uint64_t>::max();
 };
 
+// 跟踪与设备（device）相关的深度缓冲区资源和备份信息
 struct __declspec(uuid("e006e162-33ac-4b9f-b10f-0e15335c7bdb")) generic_depth_device_data
 {
 	uint64_t frame_index = 0;
 
 	// List of queues created for this device
+	// 记录与设备关联的所有命令队列
 	std::vector<command_queue *> queues;
 
 	// List of all encountered depth-stencils of the last frame
+	// resource  => depth_stencil_resource
+	// 存储设备中所有已知的深度缓冲资源信息
 	std::unordered_map<resource, depth_stencil_resource, resource_hash> depth_stencil_resources;
 
 	// List of depth-stencils that should be tracked throughout each frame and potentially be backed up during clear operations
+	// 存储深度缓冲区的备份资源
 	std::vector<depth_stencil_backup> depth_stencil_backups;
 
+	// 找到这个resource对应的 depth_stencil_backup
+	// 找到某一个resource的备份resource，如果没有的话就返回nullptr
 	depth_stencil_backup *find_depth_stencil_backup(resource resource)
 	{
+		// C++中的 == 默认是逐个变量的比较，而不是指针的比较
 		for (depth_stencil_backup &backup : depth_stencil_backups)
 			if (backup.depth_stencil_resource == resource)
 				return &backup;
 		return nullptr;
 	}
 
+	// 在有了resource和desc之后，创建其备份resource，这里的resource和desc参数都是副本，device是引用
+	// 结果是拿到 resource 的 backup 备份，并且返回
 	depth_stencil_backup *track_depth_stencil_for_backup(device *device, resource resource, resource_desc desc)
 	{
 		assert(resource != 0);
 
+		// 查找是否已经有备份资源
 		const auto it = std::find_if(depth_stencil_backups.begin(), depth_stencil_backups.end(),
 			[resource](const depth_stencil_backup &existing) { return existing.depth_stencil_resource == resource; });
 		if (it != depth_stencil_backups.end())
@@ -262,6 +279,7 @@ struct __declspec(uuid("e006e162-33ac-4b9f-b10f-0e15335c7bdb")) generic_depth_de
 			desc.usage |= resource_usage::resolve_dest;
 		}
 
+		// 对于D9,10,11，12而言，需要对数据进行专门的处理，将数据转化为typeless的格式
 		if (api == device_api::d3d9)
 			desc.texture.format = format::r32_float; // D3DFMT_R32F, since INTZ does not support D3DUSAGE_RENDERTARGET which is required for copying
 		// Use depth format as-is in OpenGL and Vulkan, since those are valid for shader resource views there
@@ -271,6 +289,7 @@ struct __declspec(uuid("e006e162-33ac-4b9f-b10f-0e15335c7bdb")) generic_depth_de
 		// First try to revive a backup resource that was previously enqueued for delayed destruction
 		for (depth_stencil_backup &backup : depth_stencil_backups)
 		{
+			// 遍历所有的准备延迟销毁的资源，如果有符合条件的直接在这个资源上进行修改
 			if (backup.depth_stencil_resource != 0)
 				continue;
 
@@ -289,10 +308,12 @@ struct __declspec(uuid("e006e162-33ac-4b9f-b10f-0e15335c7bdb")) generic_depth_de
 				return &backup;
 			}
 		}
-
+		// 如果找不到备份资源，则创建一个新的备份资源
 		depth_stencil_backup &backup = depth_stencil_backups.emplace_back();
 		backup.depth_stencil_resource = resource;
 
+		// 这里 create_resource 创建了一个原始深度信息相同desc的新资源，并且返回了资源句柄，但是其中并没有具体的数据
+		// 所以需要通过 copy_resource 将原始深度信息拷贝到新的资源中
 		if (device->create_resource(desc, nullptr, resource_usage::copy_dest, &backup.backup_texture))
 		{
 			device->set_resource_name(backup.backup_texture, "ReShade depth backup texture");
@@ -333,6 +354,51 @@ struct __declspec(uuid("e006e162-33ac-4b9f-b10f-0e15335c7bdb")) generic_depth_de
 	}
 };
 
+// 检查深度缓冲区的格式是否符合要求，这个要求是通过用户在交互界面设置的
+static bool check_depth_format(format format)
+{
+	switch (s_format_filtering)
+	{
+	default:
+		return false;
+	case 1:
+		return format == format::d16_unorm || format == format::r16_typeless;
+	case 2:
+		return format == format::d16_unorm_s8_uint;
+	case 3:
+		return format == format::d24_unorm_x8_uint;
+	case 4:
+		return format == format::d24_unorm_s8_uint || format == format::r24_g8_typeless;
+	case 5:
+		return format == format::d32_float || format == format::r32_float || format == format::r32_typeless;
+	case 6:
+		return format == format::d32_float_s8_uint || format == format::r32_g8_typeless;
+	case 7:
+		return format == format::intz;
+	}
+}
+// Checks whether the aspect ratio of the two sets of dimensions is similar or not
+// 这个也是检查aspect ratio的，和上面的check_depth_format类似，都是通过交互界面进行设置
+static bool check_aspect_ratio(float width_to_check, float height_to_check, float width, float height)
+{
+	if (width_to_check == 0.0f || height_to_check == 0.0f)
+		return true;
+
+	if (s_aspect_ratio_heuristic == aspect_ratio_heuristic::match_resolution_exactly || (s_aspect_ratio_heuristic == aspect_ratio_heuristic::match_custom_resolution_exactly && s_custom_resolution_filtering[0] == 0 && s_custom_resolution_filtering[1] == 0))
+		return width_to_check == width && height_to_check == height;
+	if (s_aspect_ratio_heuristic == aspect_ratio_heuristic::match_custom_resolution_exactly)
+		return width_to_check == s_custom_resolution_filtering[0] && width_to_check == s_custom_resolution_filtering[1];
+
+	float w_ratio = width / width_to_check;
+	float h_ratio = height / height_to_check;
+	const float aspect_ratio_delta = (width / height) - (width_to_check / height_to_check);
+
+	// Accept if dimensions are similar in value or almost exact multiples
+	return std::abs(aspect_ratio_delta) <= 0.1f && ((w_ratio <= 1.85f && w_ratio >= 0.5f && h_ratio <= 1.85f && h_ratio >= 0.5f) ||
+		(s_aspect_ratio_heuristic == aspect_ratio_heuristic::multiples_of_resolution && std::modf(w_ratio, &w_ratio) <= 0.02f && std::modf(h_ratio, &h_ratio) <= 0.02f));
+}
+
+
 static const char *const format_to_string(format format)
 {
 	switch (format)
@@ -361,48 +427,7 @@ static const char *const format_to_string(format format)
 	}
 }
 
-static bool check_depth_format(format format)
-{
-	switch (s_format_filtering)
-	{
-	default:
-		return false;
-	case 1:
-		return format == format::d16_unorm || format == format::r16_typeless;
-	case 2:
-		return format == format::d16_unorm_s8_uint;
-	case 3:
-		return format == format::d24_unorm_x8_uint;
-	case 4:
-		return format == format::d24_unorm_s8_uint || format == format::r24_g8_typeless;
-	case 5:
-		return format == format::d32_float || format == format::r32_float || format == format::r32_typeless;
-	case 6:
-		return format == format::d32_float_s8_uint || format == format::r32_g8_typeless;
-	case 7:
-		return format == format::intz;
-	}
-}
-// Checks whether the aspect ratio of the two sets of dimensions is similar or not
-static bool check_aspect_ratio(float width_to_check, float height_to_check, float width, float height)
-{
-	if (width_to_check == 0.0f || height_to_check == 0.0f)
-		return true;
-
-	if (s_aspect_ratio_heuristic == aspect_ratio_heuristic::match_resolution_exactly || (s_aspect_ratio_heuristic == aspect_ratio_heuristic::match_custom_resolution_exactly && s_custom_resolution_filtering[0] == 0 && s_custom_resolution_filtering[1] == 0))
-		return width_to_check == width && height_to_check == height;
-	if (s_aspect_ratio_heuristic == aspect_ratio_heuristic::match_custom_resolution_exactly)
-		return width_to_check == s_custom_resolution_filtering[0] && width_to_check == s_custom_resolution_filtering[1];
-
-	float w_ratio = width / width_to_check;
-	float h_ratio = height / height_to_check;
-	const float aspect_ratio_delta = (width / height) - (width_to_check / height_to_check);
-
-	// Accept if dimensions are similar in value or almost exact multiples
-	return std::abs(aspect_ratio_delta) <= 0.1f && ((w_ratio <= 1.85f && w_ratio >= 0.5f && h_ratio <= 1.85f && h_ratio >= 0.5f) ||
-		(s_aspect_ratio_heuristic == aspect_ratio_heuristic::multiples_of_resolution && std::modf(w_ratio, &w_ratio) <= 0.02f && std::modf(h_ratio, &h_ratio) <= 0.02f));
-}
-
+// 在clear depth stencil的时候，会调用这个函数，在清除之前，会进行备份
 static void on_clear_depth_impl(command_list *cmd_list, state_tracking &state, resource depth_stencil, clear_op op)
 {
 	if (depth_stencil == 0)
@@ -436,17 +461,20 @@ static void on_clear_depth_impl(command_list *cmd_list, state_tracking &state, r
 	switch (op)
 	{
 	case clear_op::clear_depth_stencil_view:
+		// 清除深度模版缓冲区
 		// Mirror's Edge and Portal occasionally render something into a small viewport (16x16 in Mirror's Edge, 512x512 in Portal to render underwater geometry)
 		do_copy = current_stats.last_viewport.width > 1024 || (current_stats.last_viewport.width == 0 || depth_stencil_backup->frame_width <= 1024);
 		break;
 	case clear_op::fullscreen_draw:
+		// 全屏绘制
 		// Mass Effect 3 in Mass Effect Legendary Edition sometimes uses a larger common depth buffer for shadow map and scene rendering, where the former uses a 1024x1024 viewport and the latter uses a viewport matching the render resolution
 		do_copy = check_aspect_ratio(current_stats.last_viewport.width, current_stats.last_viewport.height, static_cast<float>(depth_stencil_backup->frame_width), static_cast<float>(depth_stencil_backup->frame_height));
 		break;
 	case clear_op::unbind_depth_stencil_view:
+		// 解除深度模版缓冲区的绑定
 		break;
 	}
-
+	// 如果需要进行备份
 	if (do_copy)
 	{
 		if (op != clear_op::unbind_depth_stencil_view)
@@ -505,262 +533,6 @@ static void on_clear_depth_impl(command_list *cmd_list, state_tracking &state, r
 }
 
 
-void extractDepthStencil(const float *src, float &outDepth, uint8_t &outStencil) {
-	// 首先获取src[0]的原始二进制表示
-	uint32_t d24s8Value;
-	std::memcpy(&d24s8Value, src, sizeof(uint32_t)); // 使用memcpy避免类型转换的潜在问题
-
-	// 提取模板部分 (低8位)
-	outStencil = d24s8Value & 0xFF;
-
-	// 提取深度部分 (高24位)
-	uint32_t depthInt = (d24s8Value >> 8) & 0x00FFFFFF;
-
-	// 将24位整数深度值转换为浮点数 (归一化到0-1范围)
-	outDepth = static_cast<float>(depthInt) / static_cast<float>(0x00FFFFFF);
-}
-
-
-std::string toHexString(float value)
-{
-	uint32_t intBits;
-	std::memcpy(&intBits, &value, sizeof(float));
-
-	std::ostringstream oss;
-	oss << "Float: " << value << " -> Hex: 0x"
-		<< std::hex << std::uppercase << std::setfill('0') << std::setw(8)
-		<< intBits;
-
-	return oss.str();
-}
-
-bool capture_image(const resource_desc &desc, const subresource_data &data, std::filesystem::path save_path, uint32_t channels)
-{
-	float *data_p = static_cast<float *>(data.data);
-
-	// 使用vector存储深度数据，而不是直接使用OpenCV矩阵
-	std::vector<float> depth_values(desc.texture.height * desc.texture.width, 0.0f);
-	cv::Mat stencil_mat(desc.texture.height, desc.texture.width, CV_8U);
-
-	for (uint32_t y = 0; y < desc.texture.height; ++y, data_p += data.row_pitch / sizeof(float))
-	{
-		for (uint32_t x = 0; x < desc.texture.width; ++x)
-		{
-			const float *const src = data_p + x * channels;
-			uint32_t depthStencilValue;
-			std::memcpy(&depthStencilValue, src, sizeof(uint32_t));
-			uint32_t depth24 = depthStencilValue & 0xFFFFFF;
-
-			float normalizedDepth = (float)depth24 / static_cast<float>(0x00FFFFFF);
-			reshade::log::message(reshade::log::level::warning, ("src[0]: " + toHexString(src[0]) + " depth24: ").c_str());
-			// 存储到vector中，而不是OpenCV矩阵
-			depth_values[y * desc.texture.width + x] = normalizedDepth;
-		}
-	}
-
-	float vec_min = *std::min_element(depth_values.begin(), depth_values.end());
-	float vec_max = *std::max_element(depth_values.begin(), depth_values.end());
-	reshade::log::message(reshade::log::level::warning,
-		("Vector depth range: [" + std::to_string(vec_min) + ", " +
-		std::to_string(vec_max) + "]").c_str());
-
-	std::filesystem::path depth_path = save_path;
-	depth_path.replace_extension(".tiff");
-
-	std::filesystem::path stencil_path = save_path;
-	stencil_path.replace_extension(".png");
-
-	cv::Mat depth_mat(desc.texture.height, desc.texture.width, CV_32F);
-	memcpy(depth_mat.data, depth_values.data(), depth_values.size() * sizeof(float));
-
-	double mat_min, mat_max;
-	cv::minMaxLoc(depth_mat, &mat_min, &mat_max);
-	reshade::log::message(reshade::log::level::warning,
-		("After memcpy, depth_mat range: [" + std::to_string(mat_min) + ", " +
-		std::to_string(mat_max) + "]").c_str());
-
-	bool depth_saved = cv::imwrite(depth_path.string(), depth_mat);
-
-	bool stencil_saved = cv::imwrite(stencil_path.string(), stencil_mat);
-
-	reshade::log::message(reshade::log::level::info,
-		(std::string("Depth image saved to ") + depth_path.string() +
-		std::string(depth_saved ? " successfully" : " failed")).c_str());
-
-	reshade::log::message(reshade::log::level::info,
-		(std::string("Stencil image saved to ") + stencil_path.string() +
-		std::string(stencil_saved ? " successfully" : " failed")).c_str());
-
-	return depth_saved && stencil_saved;
-}
-
-
-static bool saveImage(effect_runtime *runtime, std::filesystem::path save_path, resource sbr, resource_desc sbrd, format format)
-{
-	if (sbr != 0)
-	{
-		device *const device = runtime->get_device();
-		command_queue *const queue = runtime->get_command_queue();
-		resource_desc resource_desc = sbrd;
-
-		// row_pitch => 拿到存储一行需要多少个字节
-		// D24S8 => 32 字节
-		uint32_t row_pitch = format_row_pitch(resource_desc.texture.format, resource_desc.texture.width);
-		// 将 row_pitch 上调到最近的256倍数的字节数量，DirectX 12 API要求纹理数据的每行必须以256字节对齐
-		if (device->get_api() == device_api::d3d12) // Align row pitch to D3D12_TEXTURE_DATA_PITCH_ALIGNMENT (256)
-			row_pitch = (row_pitch + 255) & ~255;
-		// 计算整个图像所需要的字节数量，正常是 row_pitch * height ,但是对于压缩数据而言计算方式不一样
-
-		const uint32_t slice_pitch = format_slice_pitch(resource_desc.texture.format, row_pitch, resource_desc.texture.height);
-
-		reshade::log::message(reshade::log::level::warning, std::string("resource_desc.texture.width is ").append(std::to_string(resource_desc.texture.width)).c_str());
-		reshade::log::message(reshade::log::level::warning, std::string("resource_desc.texture.height is ").append(std::to_string(resource_desc.texture.height)).c_str());
-		reshade::log::message(reshade::log::level::warning, ("row_pitch: " + std::to_string(row_pitch) + ", slice_pitch: " + std::to_string(slice_pitch)).c_str());
-
-		resource intermediate;
-		if (resource_desc.heap != memory_heap::gpu_only)
-		{
-			// Avoid copying to temporary system memory resource if texture is accessible directly
-			intermediate = sbr;
-		}
-		else if (device->check_capability(device_caps::copy_buffer_to_texture))
-		{
-			if ((resource_desc.usage & resource_usage::copy_source) != resource_usage::copy_source)
-			{
-				return false;
-			}
-
-			if (!device->create_resource(reshade::api::resource_desc(slice_pitch, memory_heap::gpu_to_cpu, resource_usage::copy_dest), nullptr, resource_usage::copy_dest, &intermediate))
-			{
-				reshade::log::message(reshade::log::level::warning, "Failed to create system memory buffer for texture dumping!");
-				return false;
-			}
-
-			command_list *const cmd_list = queue->get_immediate_command_list();
-			cmd_list->barrier(sbr, resource_usage::shader_resource, resource_usage::copy_source);
-			cmd_list->copy_texture_to_buffer(sbr, 0, nullptr, intermediate, 0, resource_desc.texture.width, resource_desc.texture.height);
-			cmd_list->barrier(sbr, resource_usage::copy_source, resource_usage::shader_resource);
-		}
-		else
-		{
-			if ((resource_desc.usage & resource_usage::copy_source) != resource_usage::copy_source)
-				return false;
-
-			// 根据desc创建一个新的resource资源，但是资源中的数据是没有的
-			if (!device->create_resource(reshade::api::resource_desc(resource_desc.texture.width, resource_desc.texture.height, 1, 1, format_to_default_typed(resource_desc.texture.format), 1, memory_heap::gpu_to_cpu, resource_usage::copy_dest), nullptr, resource_usage::copy_dest, &intermediate))
-			{
-				reshade::log::message(reshade::log::level::warning, "Failed to create system memory texture for texture dumping!");
-				return false;
-			}
-
-			command_list *const cmd_list = queue->get_immediate_command_list();
-			cmd_list->barrier(sbr, resource_usage::shader_resource, resource_usage::copy_source);
-			// 创建完resource之后把数据拷贝到resource中
-			cmd_list->copy_texture_region(sbr, 0, nullptr, intermediate, 0, nullptr);
-			cmd_list->barrier(sbr, resource_usage::copy_source, resource_usage::shader_resource);
-		}
-
-		queue->wait_idle();
-
-		// mapped_data 做一个内存映射，创建指向纹理的指针
-
-		subresource_data mapped_data = {};
-		if (resource_desc.heap == memory_heap::gpu_only &&
-			device->check_capability(device_caps::copy_buffer_to_texture))
-		{
-			device->map_buffer_region(intermediate, 0, std::numeric_limits<uint64_t>::max(), map_access::read_only, &mapped_data.data);
-
-			mapped_data.row_pitch = row_pitch;
-			mapped_data.slice_pitch = slice_pitch;
-		}
-		else
-		{
-			// intermediate => 目标纹理资源 0 => 目标纹理的层级 nullptr => 目标纹理的区域,nullptr表示全部区域 访问模式，这里是只读模式，mapped_data.data是一个指向纹理数据的指针
-			device->map_texture_region(intermediate, 0, nullptr, map_access::read_only, &mapped_data);
-		}
-
-		// 成功映射到纹理数据
-		if (mapped_data.data != nullptr)
-		{
-			uint32_t channels = 1;
-			const uint8_t *data_ptr = static_cast<const uint8_t *>(mapped_data.data);
-			bool data_valid = true;
-
-			// 检查第一个和最后一个像素是否可访问
-			try {
-				volatile uint32_t first_pixel = *reinterpret_cast<const uint32_t *>(data_ptr);
-				volatile uint32_t last_pixel = *reinterpret_cast<const uint32_t *>(
-					data_ptr + (resource_desc.texture.height - 1) * mapped_data.row_pitch +
-					(resource_desc.texture.width - 1) * sizeof(uint32_t));
-			}
-			catch (...) {
-				data_valid = false;
-				reshade::log::message(reshade::log::level::error, "Memory mapping validation failed!");
-			}
-
-			if (data_valid) {
-				if (!capture_image(resource_desc, mapped_data, save_path, channels))
-					return false;
-			}
-			if (!capture_image(resource_desc, mapped_data, save_path, channels))
-				return false;
-
-			if (resource_desc.heap == memory_heap::gpu_only &&
-				device->check_capability(device_caps::copy_buffer_to_texture))
-				device->unmap_buffer_region(intermediate);
-			else
-				device->unmap_texture_region(intermediate, 0);
-		}
-
-		if (intermediate != sbr) {
-			device->destroy_resource(intermediate);
-		}
-
-		return true;
-	}
-	else
-	{
-		return false;
-	}
-}
-
-
-// 这是reshade的回调函数，在reshade渲染完成之后显示在屏幕上之前调用
-static void on_reshade_present(effect_runtime *runtime)
-{
-
-	// uint32_t width, height;
-	// device *const device = runtime->get_device();
-	// auto &data = *runtime->get_private_data<generic_depth_data>();
-	// resource depth_stencil = data.selected_depth_stencil;
-	// // 如果说数据没有准备好，那么就直接跳过
-	// if (depth_stencil == 0)
-	// 	return;
-	// resource_desc depth_stencil_desc = device->get_resource_desc(depth_stencil);
-
-	// runtime->get_screenshot_width_and_height(&width, &height);
-
-	// reshade::log::message(reshade::log::level::warning, ("desc.texture.width: " + std::to_string(depth_stencil_desc.texture.width) + ", desc.texture.height: " + std::to_string(depth_stencil_desc.texture.height)).c_str());
-	// reshade::log::message(reshade::log::level::warning, (std::string("desc.texture.format: ") + format_to_string(depth_stencil_desc.texture.format)).c_str());
-
-	// 打开了F10存储的选项，并且按下了F10
-	if (runtime->is_key_pressed(0x79))
-	{
-		uint32_t width, height;
-		device *const device = runtime->get_device();
-		auto &data = *runtime->get_private_data<generic_depth_data>();
-		resource depth_stencil = data.selected_depth_stencil;
-		resource_desc depth_stencil_desc = device->get_resource_desc(depth_stencil);
-
-		runtime->get_screenshot_width_and_height(&width, &height);
-
-		reshade::log::message(reshade::log::level::warning, ("desc.texture.width: " + std::to_string(depth_stencil_desc.texture.width) + ", desc.texture.height: " + std::to_string(depth_stencil_desc.texture.height)).c_str());
-		reshade::log::message(reshade::log::level::warning, (std::string("desc.texture.format: ") + format_to_string(depth_stencil_desc.texture.format)).c_str());
-		std::filesystem::path save_path = "./test.png";
-		saveImage(runtime, save_path, depth_stencil, depth_stencil_desc, depth_stencil_desc.texture.format);
-	}
-}
-
 static void update_effect_runtime(effect_runtime *runtime)
 {
 	const auto &data = *runtime->get_private_data<generic_depth_data>();
@@ -778,8 +550,10 @@ static void update_effect_runtime(effect_runtime *runtime)
 
 static void on_init_device(device *device)
 {
+	// private data 中创建 generic_depth_device_data 用来备份 depth stencil数据
 	device->create_private_data<generic_depth_device_data>();
 
+	// 在配置文件中加入以下配置
 	reshade::get_config_value(nullptr, "DEPTH", "DisableINTZ", s_disable_intz);
 	reshade::get_config_value(nullptr, "DEPTH", "DepthCopyBeforeClears", s_preserve_depth_buffers);
 	reshade::get_config_value(nullptr, "DEPTH", "DrawStatsHeuristic", reinterpret_cast<unsigned int &>(s_draw_stats_heuristic));
@@ -851,17 +625,38 @@ static void on_destroy_effect_runtime(effect_runtime *runtime)
 	runtime->destroy_private_data<generic_depth_data>();
 }
 
+// 当图形 API 创建一个资源（例如纹理或缓冲区）时，会调用此回调函数
+// 主要就是改变resource desc的usage和format，usage加上reshade_resource, format改成typeless的形式以供reshade使用
+// 目前的条件是已经有了desc在根据desc创建resource之前的函数
 static bool on_create_resource(device *device, resource_desc &desc, subresource_data *, resource_usage)
 {
+	// 只处理 surface 或者 2d 纹理
 	if (desc.type != resource_type::surface && desc.type != resource_type::texture_2d)
 		return false; // Skip resources that are not 2D textures
 
+	// 如果使用1：多重采样+不支持深度模版解析
+	// 2. 不用作深度模板的资源
+	// 3. 只含模板信息的资源 直接跳过
 	if ((desc.texture.samples > 1 && !device->check_capability(device_caps::resolve_depth_stencil)) || (desc.usage & resource_usage::depth_stencil) == 0 || desc.texture.format == format::s8_uint)
+	{
+		std::stringstream ss;
+		ss << "desc.usage is samples=" << desc.texture.samples
+			<< " device_caps_resolve_depth_stencil=" << device->check_capability(device_caps::resolve_depth_stencil)
+			<< " depth_stencil=" << std::to_string(static_cast<int>(desc.usage & resource_usage::depth_stencil))
+			<< " depth_stencil_read=" << std::to_string(static_cast<int>(desc.usage & resource_usage::depth_stencil_read))
+			<< " depth_stencil_write=" << std::to_string(static_cast<int>(desc.usage & resource_usage::depth_stencil_write))
+			<< " format=" << static_cast<int>(desc.texture.format);
+		reshade::log::message(reshade::log::level::warning, ss.str().c_str());
 		return false; // Skip multisampled textures and resources that are not used as depth buffers
+	}
+
+	reshade::log::message(reshade::log::level::warning, std::string("format is ").append(format_to_string(desc.texture.format)).append(" (numeric value: ").append(std::to_string(static_cast<int>(desc.texture.format))).append(")").c_str());
 
 	switch (device->get_api())
 	{
+		// 对于不同的渲染器而言
 	case device_api::d3d9:
+		// 如果INTZ hack被禁用或是多重采样纹理
 		if (s_disable_intz || desc.texture.samples > 1)
 			return false;
 		// Skip textures that are sampled as PCF shadow maps (see https://aras-p.info/texts/D3D9GPUHacks.html#shadowmap) using hardware support, since changing format would break that
@@ -879,6 +674,7 @@ static bool on_create_resource(device *device, resource_desc &desc, subresource_
 	case device_api::d3d10:
 	case device_api::d3d11:
 		// Allow shader access to textures that are used as depth-stencil attachments
+		// 转换format为typeless 例如 D24S8 => r24_g8_typeless, D32S8 => r32_g8_typeless
 		desc.texture.format = format_to_typeless(desc.texture.format);
 		desc.usage |= resource_usage::shader_resource;
 		break;
@@ -900,6 +696,7 @@ static bool on_create_resource(device *device, resource_desc &desc, subresource_
 static bool on_create_resource_view(device *device, resource resource, resource_usage usage_type, resource_view_desc &desc)
 {
 	// A view cannot be created with a typeless format (which was set in 'on_create_resource' above), so fix it in case defaults are used
+	// 图形API是D3D10或D3D11，视图格式是未知（让函数选择合适的格式）或是无类型格式（需要转换为具体格式）需要继续处理
 	if ((device->get_api() != device_api::d3d10 && device->get_api() != device_api::d3d11) || (desc.format != format::unknown && desc.format != format_to_typeless(desc.format)))
 		return false;
 
@@ -1210,6 +1007,7 @@ static void on_present(command_queue *, swapchain *swapchain, const rect *, cons
 	}
 }
 
+// 在计算好
 static void on_begin_render_effects(effect_runtime *runtime, command_list *cmd_list, resource_view, resource_view)
 {
 	device *const device = runtime->get_device();
@@ -1234,21 +1032,27 @@ static void on_begin_render_effects(effect_runtime *runtime, command_list *cmd_l
 
 	for (auto &[resource, info] : current_depth_stencil_resources)
 	{
-		if (info.last_counters.total_stats.drawcalls == 0 || (info.last_counters.total_stats.vertices <= 3 && info.last_counters.total_stats.drawcalls_indirect == 0))
+		// 跳过未使用或几乎未使用（顶点数≤3）的深度缓冲
+		if (info.last_counters.total_stats.drawcalls == 0 || info.last_counters.total_stats.vertices <= 3)
 			continue; // Skip unused
 
+		// 跳过在当前帧未使用的资源，或者首次出现不久的资源（避免使用临时资源）
 		if (info.last_used_in_frame < device_data->frame_index || device_data->frame_index <= (info.first_used_in_frame + 1))
 			continue; // Skip resources not used this frame or those that only just appeared for the first time
 
+		// 如果设备不支持解析多重采样深度模板，则跳过多重采样纹理
 		const resource_desc desc = device->get_resource_desc(resource);
 		if (desc.texture.samples > 1 && !device->check_capability(device_caps::resolve_depth_stencil))
 			continue; // Ignore multisampled textures, since they would need to be resolved first
 
+		// 如果启用了格式过滤，则检查深度格式是否合适
 		if (s_format_filtering != 0 && !check_depth_format(desc.texture.format))
 			continue;
+		// 检查深度缓冲的纵横比是否与帧缓冲匹配
 		if (s_aspect_ratio_heuristic != aspect_ratio_heuristic::none && !check_aspect_ratio(static_cast<float>(desc.texture.width), static_cast<float>(desc.texture.height), static_cast<float>(frame_width), static_cast<float>(frame_height)))
 			continue; // Not a good fit
 
+		// 选择具有最高活动度（绘制调用和顶点数最多）的深度缓冲作为最佳匹配
 		const depth_stencil_frame_stats &snapshot = info.last_counters;
 		if (best_snapshot == nullptr ||
 			snapshot.total_stats > best_snapshot->total_stats)
@@ -1259,6 +1063,7 @@ static void on_begin_render_effects(effect_runtime *runtime, command_list *cmd_l
 		}
 	}
 
+	// 如果户手动指定的深度缓冲，比如在插件上勾选了某一个深度缓冲区，那么best match就是这个深度缓冲区
 	if (data.override_depth_stencil != 0)
 	{
 		const auto it = current_depth_stencil_resources.find(data.override_depth_stencil);
@@ -1270,17 +1075,22 @@ static void on_begin_render_effects(effect_runtime *runtime, command_list *cmd_l
 		}
 	}
 
+	// 保存之前的着色器资源视图引用，用于后续比较和优化
 	const resource_view prev_shader_resource = data.selected_shader_resource;
 
+	// 找到最优匹配的resource
 	if (best_match != 0) do
 	{
 		const device_api api = device->get_api();
 
+		// 拿到 best_match 的 depth_stencil_backup 
 		depth_stencil_backup *depth_stencil_backup = device_data->find_depth_stencil_backup(best_match);
 
-		// 如果说找到的best_match和上次selected_depth_stencil不一样，或者prev_shader_resource == 0，或者preserve_depth_buffers == 2，并且depth_stencil_backup == nullptr，就需要创建一个新的depth_stencil_backup
+		// 如果深度缓冲变更，或者之前没有着色器资源，或者需要进行备份但当前无备份
+		// 这确保了只有在真正需要切换深度缓冲区或设置初始深度缓冲区时才执行清理操作。
 		if (best_match != data.selected_depth_stencil || prev_shader_resource == 0 || (s_preserve_depth_buffers && depth_stencil_backup == nullptr))
 		{
+			// 当需要切换深度缓冲区的时候，把之前跟踪的深度缓冲区信息清理掉
 			// Untrack previous depth-stencil first, so that backup texture can potentially be reused
 			if (data.selected_depth_stencil != 0)
 			{
@@ -1295,8 +1105,10 @@ static void on_begin_render_effects(effect_runtime *runtime, command_list *cmd_l
 
 			// Need to create backup texture only if doing backup copies or original resource does not support shader access (which is necessary for binding it to effects)
 			// Also always create a backup texture in D3D12 or Vulkan to circument problems in case application makes use of resource aliasing
+			// 启用深度缓冲区保存功能 / 原始深度缓冲区不支持着色器访问 / 多重采样纹理需要解析才能被着色器读取 / d3d12 或者 vulkan 渲染的
 			if (s_preserve_depth_buffers || (best_match_desc.usage & resource_usage::shader_resource) == 0 || best_match_desc.texture.samples > 1 || (api == device_api::d3d12 || api == device_api::vulkan))
 			{
+				// 创建resource的备份纹理
 				depth_stencil_backup = device_data->track_depth_stencil_for_backup(device, best_match, best_match_desc);
 
 				// Abort in case backup texture creation failed
@@ -1313,11 +1125,13 @@ static void on_begin_render_effects(effect_runtime *runtime, command_list *cmd_l
 					depth_stencil_backup->force_clear_index = 0;
 
 				// Avoid recreating shader resource view when the backup texture did not change
+				// prev_shader_resource 没有初始化，或者其对应的resource 与 创建的备份纹理不是同一个resource，那么就初始化或者修改 shader resource
 				if (prev_shader_resource == 0 || device->get_resource_from_view(prev_shader_resource) != depth_stencil_backup->backup_texture)
 				{
 					if (api == device_api::d3d9)
 						srv_desc.format = format::r32_float; // Same format as backup texture, as set in 'track_depth_stencil_for_backup'
 
+					// 创建resource view， 根据resource ，resource usage， resource view desc
 					if (!device->create_resource_view(depth_stencil_backup->backup_texture, resource_usage::shader_resource, srv_desc, &data.selected_shader_resource))
 						break;
 				}
@@ -1361,6 +1175,7 @@ static void on_begin_render_effects(effect_runtime *runtime, command_list *cmd_l
 				{
 					if (best_match_desc.texture.samples > 1)
 					{
+						// 检查设备是否支持深度模版解析
 						assert(device->check_capability(device_caps::resolve_depth_stencil));
 
 						cmd_list->barrier(best_match, old_state, resource_usage::resolve_source);
@@ -1433,6 +1248,7 @@ static void draw_settings_overlay(effect_runtime *runtime)
 {
 	bool force_reset = false;
 
+	// 绘制深度统计启发式选择
 	const char *const draw_stats_heuristic_items[] = {
 		"Default",
 		"Higher vertices",
@@ -1444,6 +1260,7 @@ static void draw_settings_overlay(effect_runtime *runtime)
 		force_reset = true;
 	}
 
+	// 绘制深度缓冲区格式选择
 	const char *const aspect_ratio_heuristic_items[] = {
 		"None",
 		"Similar aspect ratio",
@@ -1457,6 +1274,7 @@ static void draw_settings_overlay(effect_runtime *runtime)
 		force_reset = true;
 	}
 
+	// 如果需要匹配自定义的分辨率
 	if (s_aspect_ratio_heuristic == aspect_ratio_heuristic::match_custom_resolution_exactly)
 	{
 		if (ImGui::InputInt2("Filter by width and height", reinterpret_cast<int *>(s_custom_resolution_filtering)))
@@ -1467,6 +1285,7 @@ static void draw_settings_overlay(effect_runtime *runtime)
 		}
 	}
 
+	// 绘制深度缓冲区格式选择
 	const char *const depth_format_items[] = { // Needs to match switch in 'check_depth_format' above
 		"All",
 		"D16  ",
@@ -1483,6 +1302,7 @@ static void draw_settings_overlay(effect_runtime *runtime)
 		force_reset = true;
 	}
 
+	// 绘制深度缓冲区复制选择
 	if (bool copy_before_clear_operations = s_preserve_depth_buffers != 0;
 		ImGui::Checkbox("Copy depth buffer before clear operations", &copy_before_clear_operations))
 	{
@@ -1533,7 +1353,9 @@ static void draw_settings_overlay(effect_runtime *runtime)
 	};
 
 	std::vector<depth_stencil_item> sorted_item_list;
+	// sorted_item_list 预留空间，避免频繁的内存分配
 	sorted_item_list.reserve(device_data->depth_stencil_resources.size());
+	// 将device_data中的数据复制到sorted_item_list中
 	for (const auto &[resource, info] : device_data->depth_stencil_resources)
 		sorted_item_list.push_back({ resource, info.last_counters, device_data->frame_index > (info.last_used_in_frame + 5) });
 
@@ -1543,6 +1365,7 @@ static void draw_settings_overlay(effect_runtime *runtime)
 	for (depth_stencil_item &item : sorted_item_list)
 		item.desc = device->get_resource_desc(item.resource);
 
+	// 根据宽度、高度、资源句柄对sorted_item_list进行排序
 	std::sort(sorted_item_list.begin(), sorted_item_list.end(),
 		[](const depth_stencil_item &a, const depth_stencil_item &b) {
 			return ((a.desc.texture.width > b.desc.texture.width || (a.desc.texture.width == b.desc.texture.width && a.desc.texture.height > b.desc.texture.height)) ||
@@ -1558,22 +1381,23 @@ static void draw_settings_overlay(effect_runtime *runtime)
 	for (const depth_stencil_item &item : sorted_item_list)
 	{
 		bool disabled = item.unusable;
+		// 如果深度缓冲区是多重采样，并且设备不支持深度缓冲区解析，则禁用该深度缓冲区
 		if (item.desc.texture.samples > 1 && !device->check_capability(device_caps::resolve_depth_stencil)) // Disable widget for multisampled textures
 			has_msaa_depth_stencil = disabled = true;
 
 		const bool selected = item.resource == data.selected_depth_stencil;
+		// 如果深度缓冲区格式符合要求，并且aspect ratio符合要求，则启用该深度缓冲区
 		const bool candidate =
 			(s_format_filtering == 0 || check_depth_format(item.desc.texture.format)) &&
 			(s_aspect_ratio_heuristic == aspect_ratio_heuristic::none || check_aspect_ratio(static_cast<float>(item.desc.texture.width), static_cast<float>(item.desc.texture.height), static_cast<float>(frame_width), static_cast<float>(frame_height)));
 
 		char label[21];
+		// 如果当前深度区被选中，那么前面加一个 > ，否则加一个空格
 		std::snprintf(label, std::size(label), "%c 0x%016llx", (selected ? '>' : ' '), item.resource.handle);
-
-
-		// 如果深度缓冲区不可用（比如是多重采样但设备不支持），禁用这个UI元素
 
 		// 如果深度缓冲区不可用（比如是多重采样但设备不支持），禁用这个UI元素
 		ImGui::BeginDisabled(disabled);
+		// 如果深度缓冲区被选中，或者候选，那么设置文本颜色为按钮激活颜色，否则设置为文本颜色
 		ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[disabled ? ImGuiCol_TextDisabled : selected || candidate ? ImGuiCol_ButtonActive : ImGuiCol_Text]);
 
 		if (bool value = (item.resource == data.override_depth_stencil);
@@ -1682,6 +1506,7 @@ void register_addon_depth()
 {
 	reshade::register_overlay(nullptr, draw_settings_overlay);
 
+	// device 和 effect runtime 初始化，只执行一次
 	reshade::register_event<reshade::addon_event::init_device>(on_init_device);
 	reshade::register_event<reshade::addon_event::init_command_list>(on_init_command_list);
 	reshade::register_event<reshade::addon_event::init_command_queue>(on_init_command_queue);
@@ -1691,7 +1516,10 @@ void register_addon_depth()
 	reshade::register_event<reshade::addon_event::destroy_command_queue>(on_destroy_command_queue);
 	reshade::register_event<reshade::addon_event::destroy_effect_runtime>(on_destroy_effect_runtime);
 
+	// resource 是动态创建和销毁的，根据游戏的需求
+	// on_create_resource 在资源创建之前会经过这个回调函数，判断如果是surface或者texture2d的话，那么就修改其format并且让shader能够访问
 	reshade::register_event<reshade::addon_event::create_resource>(on_create_resource);
+	// on_create_resource_view 在创建resource view之前被运行，一般是先创建资源再创建视图
 	reshade::register_event<reshade::addon_event::create_resource_view>(on_create_resource_view);
 	reshade::register_event<reshade::addon_event::destroy_resource>(on_destroy_resource);
 
@@ -1709,7 +1537,6 @@ void register_addon_depth()
 
 	reshade::register_event<reshade::addon_event::present>(on_present);
 
-	reshade::register_event<reshade::addon_event::reshade_present>(on_reshade_present);
 	reshade::register_event<reshade::addon_event::reshade_begin_effects>(on_begin_render_effects);
 	reshade::register_event<reshade::addon_event::reshade_finish_effects>(on_finish_render_effects);
 	// Need to set texture binding again after reloading
@@ -1744,7 +1571,6 @@ void unregister_addon_depth()
 
 	reshade::unregister_event<reshade::addon_event::present>(on_present);
 
-	reshade::unregister_event<reshade::addon_event::reshade_present>(on_reshade_present);
 	reshade::unregister_event<reshade::addon_event::reshade_begin_effects>(on_begin_render_effects);
 	reshade::unregister_event<reshade::addon_event::reshade_finish_effects>(on_finish_render_effects);
 	reshade::unregister_event<reshade::addon_event::reshade_reloaded_effects>(update_effect_runtime);
