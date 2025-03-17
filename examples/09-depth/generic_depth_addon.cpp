@@ -520,15 +520,21 @@ void extractDepthStencil(const float *src, float &outDepth, uint8_t &outStencil)
 	outDepth = static_cast<float>(depthInt) / static_cast<float>(0x00FFFFFF);
 }
 
-
-std::string toHexString(float value)
+struct D32S8
 {
-	uint32_t intBits;
-	std::memcpy(&intBits, &value, sizeof(float));
+	float depth;
+	uint8_t stencil;
+	uint8_t padding[3];
+};
+
+std::string toHexString(double value)
+{
+	uint64_t intBits;
+	std::memcpy(&intBits, &value, sizeof(double));
 
 	std::ostringstream oss;
-	oss << "Float: " << value << " -> Hex: 0x"
-		<< std::hex << std::uppercase << std::setfill('0') << std::setw(8)
+	oss << "double: " << value << " -> Hex: 0x"
+		<< std::hex << std::uppercase << std::setfill('0') << std::setw(16)
 		<< intBits;
 
 	return oss.str();
@@ -536,27 +542,45 @@ std::string toHexString(float value)
 
 bool capture_image(const resource_desc &desc, const subresource_data &data, std::filesystem::path save_path, uint32_t channels)
 {
-	float *data_p = static_cast<float *>(data.data);
 
-	// 使用vector存储深度数据，而不是直接使用OpenCV矩阵
+	const double *data_p = static_cast<const double *>(data.data);
+
 	std::vector<float> depth_values(desc.texture.height * desc.texture.width, 0.0f);
 	cv::Mat stencil_mat(desc.texture.height, desc.texture.width, CV_8U);
 
-	for (uint32_t y = 0; y < desc.texture.height; ++y, data_p += data.row_pitch / sizeof(float))
+	for (uint32_t y = 0; y < desc.texture.height; ++y)
 	{
+		const double *row_p = reinterpret_cast<const double *>(
+			reinterpret_cast<const uint8_t *>(data_p) + y * data.row_pitch);
+
 		for (uint32_t x = 0; x < desc.texture.width; ++x)
 		{
-			const float *const src = data_p + x * channels;
-			uint32_t depthStencilValue;
-			std::memcpy(&depthStencilValue, src, sizeof(uint32_t));
-			uint32_t depth24 = depthStencilValue & 0xFFFFFF;
-
-			float normalizedDepth = (float)depth24 / static_cast<float>(0x00FFFFFF);
-			reshade::log::message(reshade::log::level::warning, ("src[0]: " + toHexString(src[0]) + " depth24: ").c_str());
-			// 存储到vector中，而不是OpenCV矩阵
-			depth_values[y * desc.texture.width + x] = normalizedDepth;
+			double pixel = row_p[x];
+			// depth_values[y * desc.texture.width + x] = depthValue;
+			// stencil_mat.at<uint8_t>(y, x) = stencilValue;
+			reshade::log::message(reshade::log::level::warning, ("row_p[x]: " + toHexString(row_p[x])).c_str());
 		}
 	}
+	// float *data_p = static_cast<float *>(data.data);
+
+	// std::vector<float> depth_values(desc.texture.height * desc.texture.width, 0.0f);
+	// cv::Mat stencil_mat(desc.texture.height, desc.texture.width, CV_8U);
+
+	// for (uint32_t y = 0; y < desc.texture.height; ++y, data_p += data.row_pitch / sizeof(float))
+	// {
+	// 	for (uint32_t x = 0; x < desc.texture.width; ++x)
+	// 	{
+	// 		const float *const src = data_p + x * channels;
+	// 		uint32_t depthStencilValue;
+	// 		std::memcpy(&depthStencilValue, src, sizeof(uint32_t));
+	// 		uint32_t depth24 = depthStencilValue & 0xFFFFFF;
+
+	// 		float normalizedDepth = (float)depth24 / static_cast<float>(0x00FFFFFF);
+	// 		reshade::log::message(reshade::log::level::warning, ("src[0]: " + toHexString(src[0]) + " depth24: ").c_str());
+	// 		// 存储到vector中，而不是OpenCV矩阵
+	// 		depth_values[y * desc.texture.width + x] = normalizedDepth;
+	// 	}
+	// }
 
 	float vec_min = *std::min_element(depth_values.begin(), depth_values.end());
 	float vec_max = *std::max_element(depth_values.begin(), depth_values.end());
@@ -603,26 +627,21 @@ static bool saveImage(effect_runtime *runtime, std::filesystem::path save_path, 
 		command_queue *const queue = runtime->get_command_queue();
 		resource_desc resource_desc = sbrd;
 
-		// row_pitch => 拿到存储一行需要多少个字节
-		// D24S8 => 32 字节
 		uint32_t row_pitch = format_row_pitch(resource_desc.texture.format, resource_desc.texture.width);
 		// 将 row_pitch 上调到最近的256倍数的字节数量，DirectX 12 API要求纹理数据的每行必须以256字节对齐
 		if (device->get_api() == device_api::d3d12) // Align row pitch to D3D12_TEXTURE_DATA_PITCH_ALIGNMENT (256)
 			row_pitch = (row_pitch + 255) & ~255;
-		// 计算整个图像所需要的字节数量，正常是 row_pitch * height ,但是对于压缩数据而言计算方式不一样
-
 		const uint32_t slice_pitch = format_slice_pitch(resource_desc.texture.format, row_pitch, resource_desc.texture.height);
 
-		reshade::log::message(reshade::log::level::warning, std::string("resource_desc.texture.width is ").append(std::to_string(resource_desc.texture.width)).c_str());
-		reshade::log::message(reshade::log::level::warning, std::string("resource_desc.texture.height is ").append(std::to_string(resource_desc.texture.height)).c_str());
-		reshade::log::message(reshade::log::level::warning, ("row_pitch: " + std::to_string(row_pitch) + ", slice_pitch: " + std::to_string(slice_pitch)).c_str());
 
 		resource intermediate;
 		if (resource_desc.heap != memory_heap::gpu_only)
 		{
 			// Avoid copying to temporary system memory resource if texture is accessible directly
 			intermediate = sbr;
+
 		}
+		// 
 		else if (device->check_capability(device_caps::copy_buffer_to_texture))
 		{
 			if ((resource_desc.usage & resource_usage::copy_source) != resource_usage::copy_source)
@@ -646,7 +665,6 @@ static bool saveImage(effect_runtime *runtime, std::filesystem::path save_path, 
 			if ((resource_desc.usage & resource_usage::copy_source) != resource_usage::copy_source)
 				return false;
 
-			// 根据desc创建一个新的resource资源，但是资源中的数据是没有的
 			if (!device->create_resource(reshade::api::resource_desc(resource_desc.texture.width, resource_desc.texture.height, 1, 1, format_to_default_typed(resource_desc.texture.format), 1, memory_heap::gpu_to_cpu, resource_usage::copy_dest), nullptr, resource_usage::copy_dest, &intermediate))
 			{
 				reshade::log::message(reshade::log::level::warning, "Failed to create system memory texture for texture dumping!");
@@ -655,14 +673,11 @@ static bool saveImage(effect_runtime *runtime, std::filesystem::path save_path, 
 
 			command_list *const cmd_list = queue->get_immediate_command_list();
 			cmd_list->barrier(sbr, resource_usage::shader_resource, resource_usage::copy_source);
-			// 创建完resource之后把数据拷贝到resource中
 			cmd_list->copy_texture_region(sbr, 0, nullptr, intermediate, 0, nullptr);
 			cmd_list->barrier(sbr, resource_usage::copy_source, resource_usage::shader_resource);
 		}
 
 		queue->wait_idle();
-
-		// mapped_data 做一个内存映射，创建指向纹理的指针
 
 		subresource_data mapped_data = {};
 		if (resource_desc.heap == memory_heap::gpu_only &&
@@ -675,33 +690,13 @@ static bool saveImage(effect_runtime *runtime, std::filesystem::path save_path, 
 		}
 		else
 		{
-			// intermediate => 目标纹理资源 0 => 目标纹理的层级 nullptr => 目标纹理的区域,nullptr表示全部区域 访问模式，这里是只读模式，mapped_data.data是一个指向纹理数据的指针
 			device->map_texture_region(intermediate, 0, nullptr, map_access::read_only, &mapped_data);
 		}
 
-		// 成功映射到纹理数据
 		if (mapped_data.data != nullptr)
 		{
 			uint32_t channels = 1;
-			const uint8_t *data_ptr = static_cast<const uint8_t *>(mapped_data.data);
-			bool data_valid = true;
 
-			// 检查第一个和最后一个像素是否可访问
-			try {
-				volatile uint32_t first_pixel = *reinterpret_cast<const uint32_t *>(data_ptr);
-				volatile uint32_t last_pixel = *reinterpret_cast<const uint32_t *>(
-					data_ptr + (resource_desc.texture.height - 1) * mapped_data.row_pitch +
-					(resource_desc.texture.width - 1) * sizeof(uint32_t));
-			}
-			catch (...) {
-				data_valid = false;
-				reshade::log::message(reshade::log::level::error, "Memory mapping validation failed!");
-			}
-
-			if (data_valid) {
-				if (!capture_image(resource_desc, mapped_data, save_path, channels))
-					return false;
-			}
 			if (!capture_image(resource_desc, mapped_data, save_path, channels))
 				return false;
 
@@ -723,7 +718,6 @@ static bool saveImage(effect_runtime *runtime, std::filesystem::path save_path, 
 		return false;
 	}
 }
-
 
 // 这是reshade的回调函数，在reshade渲染完成之后显示在屏幕上之前调用
 static void on_reshade_present(effect_runtime *runtime)
