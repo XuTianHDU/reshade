@@ -546,7 +546,8 @@ bool capture_image(const resource_desc &desc, const subresource_data &data, std:
 	const double *data_p = static_cast<const double *>(data.data);
 
 	std::vector<float> depth_values(desc.texture.height * desc.texture.width, 0.0f);
-	cv::Mat stencil_mat(desc.texture.height, desc.texture.width, CV_8U);
+	std::vector<uint8_t> stencil_values(desc.texture.height * desc.texture.width, 0);
+
 
 	for (uint32_t y = 0; y < desc.texture.height; ++y)
 	{
@@ -556,9 +557,21 @@ bool capture_image(const resource_desc &desc, const subresource_data &data, std:
 		for (uint32_t x = 0; x < desc.texture.width; ++x)
 		{
 			double pixel = row_p[x];
-			// depth_values[y * desc.texture.width + x] = depthValue;
-			// stencil_mat.at<uint8_t>(y, x) = stencilValue;
-			reshade::log::message(reshade::log::level::warning, ("row_p[x]: " + toHexString(row_p[x])).c_str());
+			uint64_t bits;
+			std::memcpy(&bits, &pixel, sizeof(double));
+			float depth;
+			uint32_t depth_bits = bits & 0xFFFFFFFF;
+			std::memcpy(&depth, &depth_bits, sizeof(float));
+			uint8_t stencil = (bits >> 32) & 0xFF;
+
+			depth_values[y * desc.texture.width + x] = depth;
+			stencil_values[y * desc.texture.width + x] = stencil;
+
+			if ((rand() % 100) == 0) {
+				reshade::log::message(reshade::log::level::warning, ("row_p[x]: " + toHexString(row_p[x])).c_str());
+				reshade::log::message(reshade::log::level::warning, ("stencil: " + std::to_string(stencil)).c_str());
+				reshade::log::message(reshade::log::level::warning, ("depth: " + std::to_string(depth)).c_str());
+			}
 		}
 	}
 	// float *data_p = static_cast<float *>(data.data);
@@ -576,8 +589,11 @@ bool capture_image(const resource_desc &desc, const subresource_data &data, std:
 	// 		uint32_t depth24 = depthStencilValue & 0xFFFFFF;
 
 	// 		float normalizedDepth = (float)depth24 / static_cast<float>(0x00FFFFFF);
-	// 		reshade::log::message(reshade::log::level::warning, ("src[0]: " + toHexString(src[0]) + " depth24: ").c_str());
-	// 		// 存储到vector中，而不是OpenCV矩阵
+	// 		if ((rand() % 100) == 0) {
+	// 			reshade::log::message(reshade::log::level::warning,
+	// 				("Sample at [" + std::to_string(x) + "," + std::to_string(y) +
+	// 				"] src[0]: " + toHexString(src[0]) + " depth24: " + std::to_string(depth24)).c_str());
+	// 		}
 	// 		depth_values[y * desc.texture.width + x] = normalizedDepth;
 	// 	}
 	// }
@@ -595,7 +611,9 @@ bool capture_image(const resource_desc &desc, const subresource_data &data, std:
 	stencil_path.replace_extension(".png");
 
 	cv::Mat depth_mat(desc.texture.height, desc.texture.width, CV_32F);
+	cv::Mat stencil_mat(desc.texture.height, desc.texture.width, CV_8U);
 	memcpy(depth_mat.data, depth_values.data(), depth_values.size() * sizeof(float));
+	memcpy(stencil_mat.data, stencil_values.data(), stencil_values.size() * sizeof(uint8_t));
 
 	double mat_min, mat_max;
 	cv::minMaxLoc(depth_mat, &mat_min, &mat_max);
@@ -665,7 +683,12 @@ static bool saveImage(effect_runtime *runtime, std::filesystem::path save_path, 
 			if ((resource_desc.usage & resource_usage::copy_source) != resource_usage::copy_source)
 				return false;
 
-			if (!device->create_resource(reshade::api::resource_desc(resource_desc.texture.width, resource_desc.texture.height, 1, 1, format_to_default_typed(resource_desc.texture.format), 1, memory_heap::gpu_to_cpu, resource_usage::copy_dest), nullptr, resource_usage::copy_dest, &intermediate))
+			// if (!device->create_resource(reshade::api::resource_desc(resource_desc.texture.width, resource_desc.texture.height, 1, 1, format_to_default_typed(resource_desc.texture.format), 1, memory_heap::gpu_to_cpu, resource_usage::copy_dest), nullptr, resource_usage::copy_dest, &intermediate))
+			// {
+			// 	reshade::log::message(reshade::log::level::warning, "Failed to create system memory texture for texture dumping!");
+			// 	return false;
+			// }
+			if (!device->create_resource(reshade::api::resource_desc(resource_desc.texture.width, resource_desc.texture.height, 1, 1, resource_desc.texture.format, 1, memory_heap::gpu_to_cpu, resource_usage::copy_dest), nullptr, resource_usage::copy_dest, &intermediate))
 			{
 				reshade::log::message(reshade::log::level::warning, "Failed to create system memory texture for texture dumping!");
 				return false;
