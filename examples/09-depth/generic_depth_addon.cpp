@@ -47,6 +47,9 @@ static aspect_ratio_heuristic s_aspect_ratio_heuristic = aspect_ratio_heuristic:
 // Enable or disable the format check from 'check_depth_format' in the detection heuristic
 static unsigned int s_format_filtering = 0;
 static unsigned int s_custom_resolution_filtering[2] = {};
+static uint32_t main_render_width = 0;
+static uint32_t main_render_height = 0;
+static std::vector<resource> stencil_backups;
 
 enum class clear_op : uint8_t
 {
@@ -497,6 +500,10 @@ static void on_clear_depth_impl(command_list *cmd_list, state_tracking &state, r
 
 				// A resource has to be in this state for a clear operation, so can assume it here
 				cmd_list->barrier(depth_stencil, resource_usage::depth_stencil_write, resource_usage::copy_source);
+				// const resource_desc depth_stencil_desc = device->get_resource_desc(depth_stencil);
+				// reshade::log::message(reshade::log::level::error, ("depth_stencil.format" + std::to_string(static_cast<int>(depth_stencil_desc.texture.format))).c_str());
+				// const resource_desc backup_desc = device->get_resource_desc(depth_stencil_backup->backup_texture);
+				// reshade::log::message(reshade::log::level::error, ("backup_texture.format" + std::to_string(static_cast<int>(backup_desc.texture.format))).c_str());
 				cmd_list->copy_resource(depth_stencil, depth_stencil_backup->backup_texture);
 				cmd_list->barrier(depth_stencil, resource_usage::copy_source, resource_usage::depth_stencil_write);
 			}
@@ -504,38 +511,13 @@ static void on_clear_depth_impl(command_list *cmd_list, state_tracking &state, r
 	}
 }
 
-
-void extractDepthStencil(const float *src, float &outDepth, uint8_t &outStencil) {
-	// 首先获取src[0]的原始二进制表示
-	uint32_t d24s8Value;
-	std::memcpy(&d24s8Value, src, sizeof(uint32_t)); // 使用memcpy避免类型转换的潜在问题
-
-	// 提取模板部分 (低8位)
-	outStencil = d24s8Value & 0xFF;
-
-	// 提取深度部分 (高24位)
-	uint32_t depthInt = (d24s8Value >> 8) & 0x00FFFFFF;
-
-	// 将24位整数深度值转换为浮点数 (归一化到0-1范围)
-	outDepth = static_cast<float>(depthInt) / static_cast<float>(0x00FFFFFF);
-}
-
-struct D32S8
+std::string toHexString(uint64_t value)
 {
-	float depth;
-	uint8_t stencil;
-	uint8_t padding[3];
-};
-
-std::string toHexString(double value)
-{
-	uint64_t intBits;
-	std::memcpy(&intBits, &value, sizeof(double));
 
 	std::ostringstream oss;
 	oss << "double: " << value << " -> Hex: 0x"
 		<< std::hex << std::uppercase << std::setfill('0') << std::setw(16)
-		<< intBits;
+		<< value;
 
 	return oss.str();
 }
@@ -543,7 +525,7 @@ std::string toHexString(double value)
 bool capture_image(const resource_desc &desc, const subresource_data &data, std::filesystem::path save_path, uint32_t channels)
 {
 
-	const double *data_p = static_cast<const double *>(data.data);
+	const uint64_t *data_p = static_cast<const uint64_t *>(data.data);
 
 	std::vector<float> depth_values(desc.texture.height * desc.texture.width, 0.0f);
 	std::vector<uint8_t> stencil_values(desc.texture.height * desc.texture.width, 0);
@@ -551,23 +533,21 @@ bool capture_image(const resource_desc &desc, const subresource_data &data, std:
 
 	for (uint32_t y = 0; y < desc.texture.height; ++y)
 	{
-		const double *row_p = reinterpret_cast<const double *>(
+		const uint64_t *row_p = reinterpret_cast<const uint64_t *>(
 			reinterpret_cast<const uint8_t *>(data_p) + y * data.row_pitch);
 
 		for (uint32_t x = 0; x < desc.texture.width; ++x)
 		{
-			double pixel = row_p[x];
-			uint64_t bits;
-			std::memcpy(&bits, &pixel, sizeof(double));
+			uint64_t pixel = row_p[x];
 			float depth;
-			uint32_t depth_bits = bits & 0xFFFFFFFF;
+			uint32_t depth_bits = pixel & 0xFFFFFFFF;
 			std::memcpy(&depth, &depth_bits, sizeof(float));
-			uint8_t stencil = (bits >> 32) & 0xFF;
+			uint8_t stencil = (pixel >> 32) & 0xFF;
 
 			depth_values[y * desc.texture.width + x] = depth;
 			stencil_values[y * desc.texture.width + x] = stencil;
 
-			if ((rand() % 100) == 0) {
+			if ((rand() % 1000) == 0) {
 				reshade::log::message(reshade::log::level::warning, ("row_p[x]: " + toHexString(row_p[x])).c_str());
 				reshade::log::message(reshade::log::level::warning, ("stencil: " + std::to_string(stencil)).c_str());
 				reshade::log::message(reshade::log::level::warning, ("depth: " + std::to_string(depth)).c_str());
@@ -745,7 +725,7 @@ static bool saveImage(effect_runtime *runtime, std::filesystem::path save_path, 
 // 这是reshade的回调函数，在reshade渲染完成之后显示在屏幕上之前调用
 static void on_reshade_present(effect_runtime *runtime)
 {
-
+	device *const device = runtime->get_device();
 	// uint32_t width, height;
 	// device *const device = runtime->get_device();
 	// auto &data = *runtime->get_private_data<generic_depth_data>();
@@ -761,21 +741,46 @@ static void on_reshade_present(effect_runtime *runtime)
 	// reshade::log::message(reshade::log::level::warning, (std::string("desc.texture.format: ") + format_to_string(depth_stencil_desc.texture.format)).c_str());
 
 	// 打开了F10存储的选项，并且按下了F10
+	// if (runtime->is_key_pressed(0x79))
+	// {
+	// 	uint32_t width, height;
+	// 	auto &data = *runtime->get_private_data<generic_depth_data>();
+	// 	resource depth_stencil = data.selected_depth_stencil;
+	// 	resource_desc depth_stencil_desc = device->get_resource_desc(depth_stencil);
+
+	// 	runtime->get_screenshot_width_and_height(&width, &height);
+
+	// 	reshade::log::message(reshade::log::level::warning, ("desc.texture.width: " + std::to_string(depth_stencil_desc.texture.width) + ", desc.texture.height: " + std::to_string(depth_stencil_desc.texture.height)).c_str());
+	// 	reshade::log::message(reshade::log::level::warning, (std::string("desc.texture.format: ") + format_to_string(depth_stencil_desc.texture.format)).c_str());
+	// 	std::filesystem::path save_path = "./test.png";
+	// 	saveImage(runtime, save_path, depth_stencil, depth_stencil_desc, depth_stencil_desc.texture.format);
+	// }
 	if (runtime->is_key_pressed(0x79))
 	{
-		uint32_t width, height;
-		device *const device = runtime->get_device();
-		auto &data = *runtime->get_private_data<generic_depth_data>();
-		resource depth_stencil = data.selected_depth_stencil;
-		resource_desc depth_stencil_desc = device->get_resource_desc(depth_stencil);
-
-		runtime->get_screenshot_width_and_height(&width, &height);
-
-		reshade::log::message(reshade::log::level::warning, ("desc.texture.width: " + std::to_string(depth_stencil_desc.texture.width) + ", desc.texture.height: " + std::to_string(depth_stencil_desc.texture.height)).c_str());
-		reshade::log::message(reshade::log::level::warning, (std::string("desc.texture.format: ") + format_to_string(depth_stencil_desc.texture.format)).c_str());
-		std::filesystem::path save_path = "./test.png";
-		saveImage(runtime, save_path, depth_stencil, depth_stencil_desc, depth_stencil_desc.texture.format);
+		reshade::log::message(reshade::log::level::warning, std::to_string(stencil_backups.size()).c_str());
+		for (auto &stencil_backup : stencil_backups) {
+			resource_desc desc = device->get_resource_desc(stencil_backup);
+			// reshade::log::message(reshade::log::level::warning,
+			// 	("Resource Description Info:\n"
+			// 	"- Type: " + std::to_string(static_cast<int>(desc.type)) + "\n"
+			// 	"- Texture Width: " + std::to_string(desc.texture.width) + "\n"
+			// 	"- Texture Height: " + std::to_string(desc.texture.height) + "\n"
+			// 	"- Texture Depth/Layers: " + std::to_string(desc.texture.depth_or_layers) + "\n"
+			// 	"- Texture Levels: " + std::to_string(desc.texture.levels) + "\n"
+			// 	"- Texture Format: " + format_to_string(desc.texture.format) + "\n"
+			// 	"- Texture Samples: " + std::to_string(desc.texture.samples) + "\n"
+			// 	"- Memory Heap: " + std::to_string(static_cast<int>(desc.heap)) + "\n"
+			// 	"- Resource Usage: " + std::to_string(static_cast<uint32_t>(desc.usage)) + "\n"
+			// 	"- Resource Flags: " + std::to_string(static_cast<uint32_t>(desc.flags))).c_str());
+			std::filesystem::path save_path = "./test.png";
+			saveImage(runtime, save_path, stencil_backup, desc, desc.texture.format);
+		}
+		reshade::log::message(reshade::log::level::warning, "F10 pressed");
 	}
+	for (auto &stencil_backup : stencil_backups) {
+		device->destroy_resource(stencil_backup);
+	}
+	stencil_backups.clear();
 }
 
 static void update_effect_runtime(effect_runtime *runtime)
@@ -849,6 +854,12 @@ static void on_destroy_command_queue(command_queue *cmd_queue)
 
 static void on_init_effect_runtime(effect_runtime *runtime)
 {
+	uint32_t width = 0, height = 0;
+	runtime->get_screenshot_width_and_height(&width, &height);
+
+	// 更新全局变量
+	main_render_width = width;
+	main_render_height = height;
 	runtime->create_private_data<generic_depth_data>();
 }
 static void on_destroy_effect_runtime(effect_runtime *runtime)
@@ -1070,7 +1081,7 @@ static void on_bind_depth_stencil(command_list *cmd_list, uint32_t, const resour
 
 	state.current_depth_stencil = depth_stencil;
 }
-static bool on_clear_depth_stencil(command_list *cmd_list, resource_view dsv, const float *depth, const uint8_t *, uint32_t, const rect *)
+static bool on_clear_depth_stencil(command_list *cmd_list, resource_view dsv, const float *depth, const uint8_t *stencil, uint32_t, const rect *)
 {
 	// Ignore clears that do not affect the depth buffer (stencil clears)
 	if (depth != nullptr)
@@ -1080,8 +1091,11 @@ static bool on_clear_depth_stencil(command_list *cmd_list, resource_view dsv, co
 		const resource depth_stencil = cmd_list->get_device()->get_resource_from_view(dsv);
 
 		// Note: This does not work when called from 'vkCmdClearAttachments', since it is invalid to copy a resource inside an active render pass
-		if (s_preserve_depth_buffers)
+		if (s_preserve_depth_buffers) {
+			reshade::log::message(reshade::log::level::error, ("on_clear_depth_stencil:dpeth" + std::to_string(*depth)).c_str());
 			on_clear_depth_impl(cmd_list, state, depth_stencil, clear_op::clear_depth_stencil_view);
+		}
+
 
 		if (*depth != 1.0f)
 		{
@@ -1092,6 +1106,45 @@ static bool on_clear_depth_stencil(command_list *cmd_list, resource_view dsv, co
 			state.counters_per_used_depth_stencil[depth_stencil].reversed_clear_value = true;
 		}
 	}
+	// if (depth != nullptr)
+	// {
+	// 	reshade::log::message(reshade::log::level::error, ("on_clear_depth_stencil:dpeth" + std::to_string(*depth)).c_str());
+	// }
+	if (stencil != nullptr)
+	{
+		auto &state = *cmd_list->get_private_data<state_tracking>();
+		const resource depth_stencil = cmd_list->get_device()->get_resource_from_view(dsv);
+		const resource_desc desc = cmd_list->get_device()->get_resource_desc(depth_stencil);
+		// only texture.width and texture.height is valid
+		// if (check_aspect_ratio(static_cast<float>(desc.texture.width), static_cast<float>(desc.texture.height), static_cast<float>(main_render_width), static_cast<float>(main_render_height))) {
+		// 	device *const device = cmd_list->get_device();
+		// 	assert((desc.usage & resource_usage::copy_source) != 0);
+		// 	resource temp_resource;
+		// 	device->create_resource(reshade::api::resource_desc(desc.texture.width, desc.texture.height, 1, 1, desc.texture.format, 1, memory_heap::gpu_to_cpu, resource_usage::copy_dest), nullptr, resource_usage::copy_dest, &temp_resource);
+		// 	// A resource has to be in this state for a clear operation, so can assume it here
+		// 	cmd_list->barrier(depth_stencil, resource_usage::depth_stencil_write, resource_usage::copy_source);
+		// 	cmd_list->copy_resource(depth_stencil, temp_resource);
+		// 	cmd_list->barrier(depth_stencil, resource_usage::copy_source, resource_usage::depth_stencil_write);
+		// 	stencil_backups.push_back(temp_resource);
+		// }
+		if (desc.texture.width == 640 && desc.texture.height == 360)
+		{
+			device *const device = cmd_list->get_device();
+			assert((desc.usage & resource_usage::copy_source) != 0);
+			resource temp_resource;
+			device->create_resource(reshade::api::resource_desc(desc.texture.width, desc.texture.height, 1, 1, desc.texture.format, 1, memory_heap::gpu_to_cpu, resource_usage::copy_dest), nullptr, resource_usage::copy_dest, &temp_resource);
+			// A resource has to be in this state for a clear operation, so can assume it here
+			cmd_list->barrier(depth_stencil, resource_usage::depth_stencil_write, resource_usage::copy_source);
+			cmd_list->copy_resource(depth_stencil, temp_resource);
+			cmd_list->barrier(depth_stencil, resource_usage::copy_source, resource_usage::depth_stencil_write);
+			stencil_backups.push_back(temp_resource);
+		}
+
+
+		// reshade::log::message(reshade::log::level::error, ("on_clear_depth_stencil:stencil" + std::to_string(*stencil)).c_str());
+		return false;
+	}
+
 
 	return false;
 }
@@ -1195,6 +1248,7 @@ static void on_present(command_queue *, swapchain *swapchain, const rect *, cons
 		++it;
 	}
 
+	// Update counters for all depth-stencil resources that were used during this frame
 	for (const auto &[resource, counters] : queue_state.counters_per_used_depth_stencil)
 	{
 		// Save to current list of depth-stencils on the device, so that it can be displayed in the GUI
