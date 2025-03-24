@@ -9,6 +9,7 @@
 #include <imgui.h>
 #include <reshade.hpp>
 #include "obs_hook_info.hpp"
+#include <string>
 
 struct capture_data
 {
@@ -41,6 +42,9 @@ struct capture_data
 	};
 } data;
 
+// s_before_effects => send images before effects are applied
+// if true, transfer images/effects to OBS before they are applied
+// if false, transfer images/effects to OBS after they are applied
 static bool s_before_effects = false;
 
 static bool capture_impl_init(reshade::api::device *device, const reshade::api::resource_desc &desc, void *window)
@@ -57,12 +61,13 @@ static bool capture_impl_init(reshade::api::device *device, const reshade::api::
 	{
 		data.using_shtex = true;
 
+		// Create a shared texture that can be accessed by OBS, without resource data
 		if (!device->create_resource(
-				reshade::api::resource_desc(data.cx, data.cy, 1, 1, data.format, 1, reshade::api::memory_heap::gpu_only, reshade::api::resource_usage::shader_resource | copy_state, reshade::api::resource_flags::shared),
-				nullptr,
-				copy_state,
-				&data.shtex.texture,
-				&data.shtex.handle))
+			reshade::api::resource_desc(data.cx, data.cy, 1, 1, data.format, 1, reshade::api::memory_heap::gpu_only, reshade::api::resource_usage::shader_resource | copy_state, reshade::api::resource_flags::shared),
+			nullptr,
+			copy_state,
+			&data.shtex.texture,
+			&data.shtex.handle))
 			return false;
 
 		data.format = device->get_resource_desc(data.shtex.texture).texture.format;
@@ -77,10 +82,10 @@ static bool capture_impl_init(reshade::api::device *device, const reshade::api::
 		for (int i = 0; i < NUM_BUFFERS; i++)
 		{
 			if (!device->create_resource(
-					reshade::api::resource_desc(data.cx, data.cy, 1, 1, data.format, 1, reshade::api::memory_heap::gpu_to_cpu, copy_state),
-					nullptr,
-					copy_state,
-					&data.shmem.copy_surfaces[i]))
+				reshade::api::resource_desc(data.cx, data.cy, 1, 1, data.format, 1, reshade::api::memory_heap::gpu_to_cpu, copy_state),
+				nullptr,
+				copy_state,
+				&data.shmem.copy_surfaces[i]))
 				return false;
 		}
 
@@ -197,8 +202,10 @@ static void capture_impl_frame(reshade::api::effect_runtime *runtime, reshade::a
 {
 	if (capture_ready())
 	{
+		// get the resource that is transferred to the obs
 		const reshade::api::resource back_buffer = runtime->get_current_back_buffer();
 
+		// using_shtex => shared texture
 		if (data.using_shtex)
 			capture_impl_shtex(runtime->get_command_queue(), back_buffer, back_buffer_state);
 		else
@@ -254,6 +261,7 @@ extern "C" __declspec(dllexport) bool AddonInit(HMODULE addon_module, HMODULE re
 	if (!reshade::register_addon(addon_module, reshade_module))
 		return false;
 
+	// initialize the obs hook when load the addon
 	if (!hook_init())
 	{
 		reshade::unregister_addon(addon_module, reshade_module);

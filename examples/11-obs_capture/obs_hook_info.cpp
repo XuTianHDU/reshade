@@ -264,9 +264,12 @@ void shmem_texture_data_unlock(int idx)
 	LeaveCriticalSection(&thread_data.mutexes[idx]);
 }
 
+// Establish a bridge between reshade and OBS
 bool capture_init_shtex(shtex_data *&data, void *window, uint32_t cx, uint32_t cy, uint32_t format, bool flip, uintptr_t handle)
 {
+	// get the root window
 	const HWND root_window = GetAncestor(static_cast<HWND>(window), GA_ROOT);
+	// 
 	if (!create_file_mapping(shmem_file_handle, shmem_info, sizeof(shtex_data), SHMEM_TEXTURE "_%llu_%u", static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(root_window)), ++shmem_id_counter))
 		return false;
 

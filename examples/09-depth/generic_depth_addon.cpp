@@ -511,12 +511,12 @@ static void on_clear_depth_impl(command_list *cmd_list, state_tracking &state, r
 	}
 }
 
-std::string toHexString(uint64_t value)
+std::string toHexString(uint32_t value)
 {
 
 	std::ostringstream oss;
 	oss << "double: " << value << " -> Hex: 0x"
-		<< std::hex << std::uppercase << std::setfill('0') << std::setw(16)
+		<< std::hex << std::uppercase << std::setfill('0') << std::setw(8)
 		<< value;
 
 	return oss.str();
@@ -524,59 +524,61 @@ std::string toHexString(uint64_t value)
 
 bool capture_image(const resource_desc &desc, const subresource_data &data, std::filesystem::path save_path, uint32_t channels)
 {
-
-	const uint64_t *data_p = static_cast<const uint64_t *>(data.data);
-
 	std::vector<float> depth_values(desc.texture.height * desc.texture.width, 0.0f);
 	std::vector<uint8_t> stencil_values(desc.texture.height * desc.texture.width, 0);
 
+	// const uint64_t *data_p = static_cast<const uint64_t *>(data.data);
+
+	// for (uint32_t y = 0; y < desc.texture.height; ++y)
+	// {
+	// 	const uint64_t *row_p = reinterpret_cast<const uint64_t *>(
+	// 		reinterpret_cast<const uint8_t *>(data_p) + y * data.row_pitch);
+
+	// 	for (uint32_t x = 0; x < desc.texture.width; ++x)
+	// 	{
+	// 		uint64_t pixel = row_p[x];
+	// 		float depth;
+	// 		uint32_t depth_bits = pixel & 0xFFFFFFFF;
+	// 		std::memcpy(&depth, &depth_bits, sizeof(float));
+	// 		uint8_t stencil = (pixel >> 32) & 0xFF;
+
+	// 		depth_values[y * desc.texture.width + x] = depth;
+	// 		stencil_values[y * desc.texture.width + x] = stencil;
+
+	// 		if ((rand() % 1000) == 0) {
+	// 			reshade::log::message(reshade::log::level::warning, ("row_p[x]: " + toHexString(row_p[x])).c_str());
+	// 			reshade::log::message(reshade::log::level::warning, ("stencil: " + std::to_string(stencil)).c_str());
+	// 			reshade::log::message(reshade::log::level::warning, ("depth: " + std::to_string(depth)).c_str());
+	// 		}
+	// 	}
+	// }
+
+	const uint32_t *data_p = static_cast<const uint32_t *>(data.data);
 
 	for (uint32_t y = 0; y < desc.texture.height; ++y)
 	{
-		const uint64_t *row_p = reinterpret_cast<const uint64_t *>(
+		const uint32_t *row_p = reinterpret_cast<const uint32_t *>(
 			reinterpret_cast<const uint8_t *>(data_p) + y * data.row_pitch);
 
 		for (uint32_t x = 0; x < desc.texture.width; ++x)
 		{
-			uint64_t pixel = row_p[x];
-			float depth;
-			uint32_t depth_bits = pixel & 0xFFFFFFFF;
-			std::memcpy(&depth, &depth_bits, sizeof(float));
-			uint8_t stencil = (pixel >> 32) & 0xFF;
+			uint32_t pixel = row_p[x];
+
+			uint32_t depth24 = pixel & 0x00FFFFFF;
+			float depth = static_cast<float>(depth24) / 16777215.0f; // 16777215 = 2^24 - 1
+
+			uint8_t stencil = (pixel >> 24) & 0xFF;
 
 			depth_values[y * desc.texture.width + x] = depth;
 			stencil_values[y * desc.texture.width + x] = stencil;
 
 			if ((rand() % 1000) == 0) {
-				reshade::log::message(reshade::log::level::warning, ("row_p[x]: " + toHexString(row_p[x])).c_str());
+				reshade::log::message(reshade::log::level::warning, ("row_p[x]: " + toHexString(pixel)).c_str());
 				reshade::log::message(reshade::log::level::warning, ("stencil: " + std::to_string(stencil)).c_str());
 				reshade::log::message(reshade::log::level::warning, ("depth: " + std::to_string(depth)).c_str());
 			}
 		}
 	}
-	// float *data_p = static_cast<float *>(data.data);
-
-	// std::vector<float> depth_values(desc.texture.height * desc.texture.width, 0.0f);
-	// cv::Mat stencil_mat(desc.texture.height, desc.texture.width, CV_8U);
-
-	// for (uint32_t y = 0; y < desc.texture.height; ++y, data_p += data.row_pitch / sizeof(float))
-	// {
-	// 	for (uint32_t x = 0; x < desc.texture.width; ++x)
-	// 	{
-	// 		const float *const src = data_p + x * channels;
-	// 		uint32_t depthStencilValue;
-	// 		std::memcpy(&depthStencilValue, src, sizeof(uint32_t));
-	// 		uint32_t depth24 = depthStencilValue & 0xFFFFFF;
-
-	// 		float normalizedDepth = (float)depth24 / static_cast<float>(0x00FFFFFF);
-	// 		if ((rand() % 100) == 0) {
-	// 			reshade::log::message(reshade::log::level::warning,
-	// 				("Sample at [" + std::to_string(x) + "," + std::to_string(y) +
-	// 				"] src[0]: " + toHexString(src[0]) + " depth24: " + std::to_string(depth24)).c_str());
-	// 		}
-	// 		depth_values[y * desc.texture.width + x] = normalizedDepth;
-	// 	}
-	// }
 
 	float vec_min = *std::min_element(depth_values.begin(), depth_values.end());
 	float vec_max = *std::max_element(depth_values.begin(), depth_values.end());
@@ -1116,19 +1118,7 @@ static bool on_clear_depth_stencil(command_list *cmd_list, resource_view dsv, co
 		const resource depth_stencil = cmd_list->get_device()->get_resource_from_view(dsv);
 		const resource_desc desc = cmd_list->get_device()->get_resource_desc(depth_stencil);
 		// only texture.width and texture.height is valid
-		// if (check_aspect_ratio(static_cast<float>(desc.texture.width), static_cast<float>(desc.texture.height), static_cast<float>(main_render_width), static_cast<float>(main_render_height))) {
-		// 	device *const device = cmd_list->get_device();
-		// 	assert((desc.usage & resource_usage::copy_source) != 0);
-		// 	resource temp_resource;
-		// 	device->create_resource(reshade::api::resource_desc(desc.texture.width, desc.texture.height, 1, 1, desc.texture.format, 1, memory_heap::gpu_to_cpu, resource_usage::copy_dest), nullptr, resource_usage::copy_dest, &temp_resource);
-		// 	// A resource has to be in this state for a clear operation, so can assume it here
-		// 	cmd_list->barrier(depth_stencil, resource_usage::depth_stencil_write, resource_usage::copy_source);
-		// 	cmd_list->copy_resource(depth_stencil, temp_resource);
-		// 	cmd_list->barrier(depth_stencil, resource_usage::copy_source, resource_usage::depth_stencil_write);
-		// 	stencil_backups.push_back(temp_resource);
-		// }
-		if (desc.texture.width == 640 && desc.texture.height == 360)
-		{
+		if (check_aspect_ratio(static_cast<float>(desc.texture.width), static_cast<float>(desc.texture.height), static_cast<float>(main_render_width), static_cast<float>(main_render_height))) {
 			device *const device = cmd_list->get_device();
 			assert((desc.usage & resource_usage::copy_source) != 0);
 			resource temp_resource;
