@@ -218,15 +218,15 @@ namespace reshade
 		void get_uniform_value_data(const uniform &variable, uint8_t *data, size_t size, size_t base_index) const;
 		template <typename T>
 		std::enable_if_t<std::is_same_v<T, bool> || std::is_same_v<T, int32_t> || std::is_same_v<T, uint32_t> || std::is_same_v<T, float>>
-		get_uniform_value(const uniform &variable, T *values, size_t count = 1, size_t array_index = 0) const;
+			get_uniform_value(const uniform &variable, T *values, size_t count = 1, size_t array_index = 0) const;
 
 		void set_uniform_value_data(uniform &variable, const uint8_t *data, size_t size, size_t base_index);
 		template <typename T>
 		std::enable_if_t<std::is_same_v<T, bool> || std::is_same_v<T, int32_t> || std::is_same_v<T, uint32_t> || std::is_same_v<T, float>>
-		set_uniform_value(uniform &variable, const T *values, size_t count = 1, size_t array_index = 0);
+			set_uniform_value(uniform &variable, const T *values, size_t count = 1, size_t array_index = 0);
 		template <typename T>
 		std::enable_if_t<std::is_same_v<T, bool> || std::is_same_v<T, int32_t> || std::is_same_v<T, uint32_t> || std::is_same_v<T, float>>
-		set_uniform_value(uniform &variable, T x, T y = T(0), T z = T(0), T w = T(0))
+			set_uniform_value(uniform &variable, T x, T y = T(0), T z = T(0), T w = T(0))
 		{
 			const T values[4] = { x, y, z, w };
 			set_uniform_value(variable, values, 4, 0);
@@ -256,7 +256,7 @@ namespace reshade
 		bool _is_in_present_call = false;
 #endif
 
-		#pragma region Status
+#pragma region Status
 		static unsigned int s_latest_version[3];
 
 		bool _is_initialized = false;
@@ -275,9 +275,9 @@ namespace reshade
 		std::chrono::high_resolution_clock::duration _last_frame_duration;
 		std::chrono::high_resolution_clock::time_point _start_time, _last_present_time;
 		uint64_t _frame_count = 0;
-		#pragma endregion
+#pragma endregion
 
-		#pragma region Effect Loading
+#pragma region Effect Loading
 		bool _no_debug_info = true;
 		bool _no_effect_cache = false;
 		bool _no_reload_on_init = false;
@@ -307,9 +307,9 @@ namespace reshade
 
 		std::vector<std::thread> _worker_threads;
 		std::chrono::high_resolution_clock::time_point _last_reload_time;
-		#pragma endregion
+#pragma endregion
 
-		#pragma region Effect Rendering
+#pragma region Effect Rendering
 		struct effect_permutation
 		{
 			unsigned int width = 0;
@@ -344,9 +344,9 @@ namespace reshade
 
 		api::fence _queue_sync_fence = {};
 		uint64_t _queue_sync_value = 0;
-		#pragma endregion
+#pragma endregion
 
-		#pragma region Screenshot
+#pragma region Screenshot
 		bool _screenshot_save_before = false;
 		bool _screenshot_include_preset = false;
 #if RESHADE_GUI
@@ -371,9 +371,9 @@ namespace reshade
 		bool _screenshot_directory_creation_successful = true;
 		std::filesystem::path _last_screenshot_file;
 		std::chrono::high_resolution_clock::time_point _last_screenshot_time;
-		#pragma endregion
+#pragma endregion
 
-		#pragma region Preset Switching
+#pragma region Preset Switching
 		unsigned int _prev_preset_key_data[4] = {};
 		unsigned int _next_preset_key_data[4] = {};
 		unsigned int _preset_transition_duration = 1000;
@@ -389,7 +389,7 @@ namespace reshade
 			unsigned int key_data[4] = {};
 		};
 		std::vector<preset_shortcut> _preset_shortcuts;
-		#pragma endregion
+#pragma endregion
 
 #if RESHADE_GUI
 		void init_gui();
@@ -422,7 +422,7 @@ namespace reshade
 		void render_imgui_draw_data(api::command_list *cmd_list, ImDrawData *draw_data, api::resource_view rtv);
 		void destroy_imgui_resources();
 
-		#pragma region Overlay
+#pragma region Overlay
 		ImGuiContext *_imgui_context = nullptr;
 
 		bool _show_splash = true;
@@ -459,9 +459,9 @@ namespace reshade
 
 		api::resource _vr_overlay_tex = {};
 		api::resource_view _vr_overlay_target = {};
-		#pragma endregion
+#pragma endregion
 
-		#pragma region Overlay Home
+#pragma region Overlay Home
 		char _effect_filter[32] = {};
 		bool _variable_editor_tabs = false;
 		bool _auto_save_preset = true;
@@ -474,13 +474,13 @@ namespace reshade
 		unsigned int _tutorial_index = 0;
 		unsigned int _effects_expanded_state = 2;
 		float _variable_editor_height = 200.0f;
-		#pragma endregion
+#pragma endregion
 
-		#pragma region Overlay Add-ons
+#pragma region Overlay Add-ons
 		char _addons_filter[32] = {};
-		#pragma endregion
+#pragma endregion
 
-		#pragma region Overlay Settings
+#pragma region Overlay Settings
 		std::string _selected_language, _current_language;
 		int _font_size = 0;
 		int _editor_font_size = 0;
@@ -495,23 +495,23 @@ namespace reshade
 		float _hdr_overlay_brightness = 203.f; // HDR reference white as per BT.2408
 		api::color_space _hdr_overlay_overwrite_color_space = api::color_space::unknown;
 		bool  _show_force_load_effects_button = true;
-		#pragma endregion
+#pragma endregion
 
-		#pragma region Overlay Statistics
+#pragma region Overlay Statistics
 		bool _gather_gpu_statistics = false;
 		api::resource_view _preview_texture = {};
 		unsigned int _preview_size[3] = { 0, 0, 0xFFFFFFFF };
 		uint64_t _timestamp_frequency = 0;
-		#pragma endregion
+#pragma endregion
 
-		#pragma region Overlay Log
+#pragma region Overlay Log
 		char _log_filter[32] = {};
 		bool _log_wordwrap = false;
 		uintmax_t _last_log_size;
 		std::vector<std::string> _log_lines;
-		#pragma endregion
+#pragma endregion
 
-		#pragma region Overlay Code Editor
+#pragma region Overlay Code Editor
 		struct editor_instance
 		{
 			size_t effect_index;
@@ -530,7 +530,7 @@ namespace reshade
 
 		std::vector<editor_instance> _editors;
 		uint32_t _editor_palette[imgui::code_editor::color_palette_max];
-		#pragma endregion
+#pragma endregion
 #endif
 	};
 

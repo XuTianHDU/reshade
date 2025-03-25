@@ -44,3 +44,4 @@ Thumbs.db
 /setup/*.ini
 /setup/Properties/AssemblyInfo.cs
 /deps/opencv
+*.sln

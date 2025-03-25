@@ -47,9 +47,25 @@ static aspect_ratio_heuristic s_aspect_ratio_heuristic = aspect_ratio_heuristic:
 // Enable or disable the format check from 'check_depth_format' in the detection heuristic
 static unsigned int s_format_filtering = 0;
 static unsigned int s_custom_resolution_filtering[2] = {};
+
 static uint32_t main_render_width = 0;
 static uint32_t main_render_height = 0;
 static std::vector<resource> stencil_backups;
+static cv::Mat depth_mat;
+static cv::Mat stencil_mat;
+static cv::Mat rgb_mat;
+static bool is_recording = false;
+static int frame_counter = 0;
+static std::string timestamp;
+std::filesystem::path dataset_dir = "E:/GTAV";
+std::filesystem::path save_dir = "./";
+
+enum type
+{
+	depth,
+	stencil,
+	rgb
+};
 
 enum class clear_op : uint8_t
 {
@@ -522,104 +538,135 @@ std::string toHexString(uint32_t value)
 	return oss.str();
 }
 
-bool capture_image(const resource_desc &desc, const subresource_data &data, std::filesystem::path save_path, uint32_t channels)
+
+// bool capture_image(const resource_desc &desc, const subresource_data &data, type tex_type)
+// {
+// 	const uint64_t *data_p = static_cast<const uint64_t *>(data.data);
+// 	// float min_depth = std::numeric_limits<float>::max();
+// 	// float max_depth = std::numeric_limits<float>::lowest();
+
+// 	for (uint32_t y = 0; y < desc.texture.height; ++y)
+// 	{
+// 		const uint64_t *row_p = reinterpret_cast<const uint64_t *>(
+// 			reinterpret_cast<const uint8_t *>(data_p) + y * data.row_pitch);
+
+// 		for (uint32_t x = 0; x < desc.texture.width; ++x)
+// 		{
+// 			uint64_t pixel = row_p[x];
+// 			const size_t idx = y * desc.texture.width + x;
+// 			switch (tex_type)
+// 			{
+// 			case depth:
+// 			{
+// 				float *depth_ptr = reinterpret_cast<float *>(depth_mat.data);
+// 				float depth;
+// 				uint32_t depth_bits = pixel & 0xFFFFFFFF;
+// 				std::memcpy(&depth, &depth_bits, sizeof(float));
+// 				depth_ptr[y * desc.texture.width + x] = depth;
+// 				break;
+// 			}
+// 			case stencil:
+// 			{
+// 				uint8_t *stencil_ptr = stencil_mat.data;
+// 				uint8_t stencil = (pixel >> 32) & 0xFF;
+// 				stencil_ptr[y * desc.texture.width + x] = std::max(stencil_ptr[y * desc.texture.width + x], stencil);
+// 				break;
+// 			}
+// 			case rgb:
+// 			{
+
+// 			}
+// 			default:
+// 				// 如果 tex_type 是未知类型，输出警告或错误日志
+// 				std::cerr << "Unknown texture type: " << tex_type << std::endl;
+// 				return false;
+// 			}
+
+// 			// // 跟踪最小/最大值
+// 			// min_depth = std::min(min_depth, depth);
+// 			// max_depth = std::max(max_depth, depth);
+// 		}
+// 	}
+
+// 	// reshade::log::message(reshade::log::level::warning,
+// 	//     ("Vector depth range: [" + std::to_string(min_depth) + ", " +
+// 	//     std::to_string(max_depth) + "]").c_str());
+// 	return true;
+// }
+
+
+bool capture_image(const resource_desc &desc, const subresource_data &data, type tex_type)
 {
-	std::vector<float> depth_values(desc.texture.height * desc.texture.width, 0.0f);
-	std::vector<uint8_t> stencil_values(desc.texture.height * desc.texture.width, 0);
-
-	// const uint64_t *data_p = static_cast<const uint64_t *>(data.data);
-
-	// for (uint32_t y = 0; y < desc.texture.height; ++y)
-	// {
-	// 	const uint64_t *row_p = reinterpret_cast<const uint64_t *>(
-	// 		reinterpret_cast<const uint8_t *>(data_p) + y * data.row_pitch);
-
-	// 	for (uint32_t x = 0; x < desc.texture.width; ++x)
-	// 	{
-	// 		uint64_t pixel = row_p[x];
-	// 		float depth;
-	// 		uint32_t depth_bits = pixel & 0xFFFFFFFF;
-	// 		std::memcpy(&depth, &depth_bits, sizeof(float));
-	// 		uint8_t stencil = (pixel >> 32) & 0xFF;
-
-	// 		depth_values[y * desc.texture.width + x] = depth;
-	// 		stencil_values[y * desc.texture.width + x] = stencil;
-
-	// 		if ((rand() % 1000) == 0) {
-	// 			reshade::log::message(reshade::log::level::warning, ("row_p[x]: " + toHexString(row_p[x])).c_str());
-	// 			reshade::log::message(reshade::log::level::warning, ("stencil: " + std::to_string(stencil)).c_str());
-	// 			reshade::log::message(reshade::log::level::warning, ("depth: " + std::to_string(depth)).c_str());
-	// 		}
-	// 	}
-	// }
-
-	const uint32_t *data_p = static_cast<const uint32_t *>(data.data);
-
-	for (uint32_t y = 0; y < desc.texture.height; ++y)
+	if (tex_type == rgb)
 	{
-		const uint32_t *row_p = reinterpret_cast<const uint32_t *>(
-			reinterpret_cast<const uint8_t *>(data_p) + y * data.row_pitch);
+		const uint32_t *data_p = static_cast<const uint32_t *>(data.data);
 
-		for (uint32_t x = 0; x < desc.texture.width; ++x)
+		for (uint32_t y = 0; y < desc.texture.height; ++y)
 		{
-			uint32_t pixel = row_p[x];
+			const uint32_t *row_p = reinterpret_cast<const uint32_t *>(
+				reinterpret_cast<const uint8_t *>(data_p) + y * data.row_pitch);
 
-			uint32_t depth24 = pixel & 0x00FFFFFF;
-			float depth = static_cast<float>(depth24) / 16777215.0f; // 16777215 = 2^24 - 1
+			uint8_t *rgb_ptr = rgb_mat.data + y * rgb_mat.step;
 
-			uint8_t stencil = (pixel >> 24) & 0xFF;
+			if (data.row_pitch == desc.texture.width * 4 && rgb_mat.step == desc.texture.width * 4)
+			{
+				memcpy(rgb_ptr, row_p, desc.texture.width * 4);
+			}
+			else
+			{
+				for (uint32_t x = 0; x < desc.texture.width; ++x)
+				{
+					uint32_t pixel = row_p[x];
 
-			depth_values[y * desc.texture.width + x] = depth;
-			stencil_values[y * desc.texture.width + x] = stencil;
-
-			if ((rand() % 1000) == 0) {
-				reshade::log::message(reshade::log::level::warning, ("row_p[x]: " + toHexString(pixel)).c_str());
-				reshade::log::message(reshade::log::level::warning, ("stencil: " + std::to_string(stencil)).c_str());
-				reshade::log::message(reshade::log::level::warning, ("depth: " + std::to_string(depth)).c_str());
+					*reinterpret_cast<uint32_t *>(rgb_ptr + x * 4) = pixel;
+				}
 			}
 		}
+		return true;
 	}
+	else
+	{
+		const uint64_t *data_p = static_cast<const uint64_t *>(data.data);
 
-	float vec_min = *std::min_element(depth_values.begin(), depth_values.end());
-	float vec_max = *std::max_element(depth_values.begin(), depth_values.end());
-	reshade::log::message(reshade::log::level::warning,
-		("Vector depth range: [" + std::to_string(vec_min) + ", " +
-		std::to_string(vec_max) + "]").c_str());
+		for (uint32_t y = 0; y < desc.texture.height; ++y)
+		{
+			const uint64_t *row_p = reinterpret_cast<const uint64_t *>(
+				reinterpret_cast<const uint8_t *>(data_p) + y * data.row_pitch);
 
-	std::filesystem::path depth_path = save_path;
-	depth_path.replace_extension(".tiff");
+			for (uint32_t x = 0; x < desc.texture.width; ++x)
+			{
+				uint64_t pixel = row_p[x];
 
-	std::filesystem::path stencil_path = save_path;
-	stencil_path.replace_extension(".png");
-
-	cv::Mat depth_mat(desc.texture.height, desc.texture.width, CV_32F);
-	cv::Mat stencil_mat(desc.texture.height, desc.texture.width, CV_8U);
-	memcpy(depth_mat.data, depth_values.data(), depth_values.size() * sizeof(float));
-	memcpy(stencil_mat.data, stencil_values.data(), stencil_values.size() * sizeof(uint8_t));
-
-	double mat_min, mat_max;
-	cv::minMaxLoc(depth_mat, &mat_min, &mat_max);
-	reshade::log::message(reshade::log::level::warning,
-		("After memcpy, depth_mat range: [" + std::to_string(mat_min) + ", " +
-		std::to_string(mat_max) + "]").c_str());
-
-	bool depth_saved = cv::imwrite(depth_path.string(), depth_mat);
-
-	bool stencil_saved = cv::imwrite(stencil_path.string(), stencil_mat);
-
-	reshade::log::message(reshade::log::level::info,
-		(std::string("Depth image saved to ") + depth_path.string() +
-		std::string(depth_saved ? " successfully" : " failed")).c_str());
-
-	reshade::log::message(reshade::log::level::info,
-		(std::string("Stencil image saved to ") + stencil_path.string() +
-		std::string(stencil_saved ? " successfully" : " failed")).c_str());
-
-	return depth_saved && stencil_saved;
+				switch (tex_type)
+				{
+				case depth:
+				{
+					float *depth_ptr = reinterpret_cast<float *>(depth_mat.data);
+					float depth;
+					uint32_t depth_bits = pixel & 0xFFFFFFFF;
+					std::memcpy(&depth, &depth_bits, sizeof(float));
+					depth_ptr[y * desc.texture.width + x] = depth;
+					break;
+				}
+				case stencil:
+				{
+					uint8_t *stencil_ptr = stencil_mat.data;
+					uint8_t stencil = (pixel >> 32) & 0xFF;
+					stencil_ptr[y * desc.texture.width + x] = std::max(stencil_ptr[y * desc.texture.width + x], stencil);
+					break;
+				}
+				default:
+					std::cerr << "Unknown texture type: " << tex_type << std::endl;
+					return false;
+				}
+			}
+		}
+		return true;
+	}
 }
 
 
-static bool saveImage(effect_runtime *runtime, std::filesystem::path save_path, resource sbr, resource_desc sbrd, format format)
+static bool saveImage(effect_runtime *runtime, resource sbr, resource_desc sbrd, format format, type tex_type)
 {
 	if (sbr != 0)
 	{
@@ -700,9 +747,8 @@ static bool saveImage(effect_runtime *runtime, std::filesystem::path save_path, 
 
 		if (mapped_data.data != nullptr)
 		{
-			uint32_t channels = 1;
 
-			if (!capture_image(resource_desc, mapped_data, save_path, channels))
+			if (!capture_image(resource_desc, mapped_data, tex_type))
 				return false;
 
 			if (resource_desc.heap == memory_heap::gpu_only &&
@@ -728,57 +774,100 @@ static bool saveImage(effect_runtime *runtime, std::filesystem::path save_path, 
 static void on_reshade_present(effect_runtime *runtime)
 {
 	device *const device = runtime->get_device();
-	// uint32_t width, height;
-	// device *const device = runtime->get_device();
-	// auto &data = *runtime->get_private_data<generic_depth_data>();
-	// resource depth_stencil = data.selected_depth_stencil;
-	// // 如果说数据没有准备好，那么就直接跳过
-	// if (depth_stencil == 0)
-	// 	return;
-	// resource_desc depth_stencil_desc = device->get_resource_desc(depth_stencil);
-
-	// runtime->get_screenshot_width_and_height(&width, &height);
-
-	// reshade::log::message(reshade::log::level::warning, ("desc.texture.width: " + std::to_string(depth_stencil_desc.texture.width) + ", desc.texture.height: " + std::to_string(depth_stencil_desc.texture.height)).c_str());
-	// reshade::log::message(reshade::log::level::warning, (std::string("desc.texture.format: ") + format_to_string(depth_stencil_desc.texture.format)).c_str());
-
-	// 打开了F10存储的选项，并且按下了F10
-	// if (runtime->is_key_pressed(0x79))
-	// {
-	// 	uint32_t width, height;
-	// 	auto &data = *runtime->get_private_data<generic_depth_data>();
-	// 	resource depth_stencil = data.selected_depth_stencil;
-	// 	resource_desc depth_stencil_desc = device->get_resource_desc(depth_stencil);
-
-	// 	runtime->get_screenshot_width_and_height(&width, &height);
-
-	// 	reshade::log::message(reshade::log::level::warning, ("desc.texture.width: " + std::to_string(depth_stencil_desc.texture.width) + ", desc.texture.height: " + std::to_string(depth_stencil_desc.texture.height)).c_str());
-	// 	reshade::log::message(reshade::log::level::warning, (std::string("desc.texture.format: ") + format_to_string(depth_stencil_desc.texture.format)).c_str());
-	// 	std::filesystem::path save_path = "./test.png";
-	// 	saveImage(runtime, save_path, depth_stencil, depth_stencil_desc, depth_stencil_desc.texture.format);
-	// }
+	// press F10 to start capture
 	if (runtime->is_key_pressed(0x79))
 	{
-		reshade::log::message(reshade::log::level::warning, std::to_string(stencil_backups.size()).c_str());
-		for (auto &stencil_backup : stencil_backups) {
-			resource_desc desc = device->get_resource_desc(stencil_backup);
-			// reshade::log::message(reshade::log::level::warning,
-			// 	("Resource Description Info:\n"
-			// 	"- Type: " + std::to_string(static_cast<int>(desc.type)) + "\n"
-			// 	"- Texture Width: " + std::to_string(desc.texture.width) + "\n"
-			// 	"- Texture Height: " + std::to_string(desc.texture.height) + "\n"
-			// 	"- Texture Depth/Layers: " + std::to_string(desc.texture.depth_or_layers) + "\n"
-			// 	"- Texture Levels: " + std::to_string(desc.texture.levels) + "\n"
-			// 	"- Texture Format: " + format_to_string(desc.texture.format) + "\n"
-			// 	"- Texture Samples: " + std::to_string(desc.texture.samples) + "\n"
-			// 	"- Memory Heap: " + std::to_string(static_cast<int>(desc.heap)) + "\n"
-			// 	"- Resource Usage: " + std::to_string(static_cast<uint32_t>(desc.usage)) + "\n"
-			// 	"- Resource Flags: " + std::to_string(static_cast<uint32_t>(desc.flags))).c_str());
-			std::filesystem::path save_path = "./test.png";
-			saveImage(runtime, save_path, stencil_backup, desc, desc.texture.format);
+		if (!is_recording) {
+			// new record
+			auto now = std::chrono::system_clock::now();
+			auto now_time_t = std::chrono::system_clock::to_time_t(now);
+			std::stringstream ss;
+			ss << std::put_time(std::localtime(&now_time_t), "%Y%m%d_%H%M%S");
+			timestamp = ss.str();
+
+			save_dir = dataset_dir / ("capture_" + timestamp);
+			std::filesystem::create_directories(save_dir);
+
+			// 重置计数器和标志
+			frame_counter = 0;
+			is_recording = true;
+
+			// 重置Mat
+			depth_mat.setTo(cv::Scalar(0.0f));
+			stencil_mat.setTo(cv::Scalar(0));
+			rgb_mat.setTo(cv::Scalar(0, 0, 0, 0));
+
+			reshade::log::message(reshade::log::level::info, ("Recording started. Saving to folder: capture_" + timestamp).c_str());
 		}
-		reshade::log::message(reshade::log::level::warning, "F10 pressed");
+		else {
+			reshade::log::message(reshade::log::level::warning,
+				"Already recording. Press F9 to stop current recording.");
+		}
 	}
+
+	// 检测F9按下 - 停止记录
+	if (runtime->is_key_pressed(0x78)) // F9
+	{
+		if (is_recording) {
+			is_recording = false;
+			reshade::log::message(reshade::log::level::info, ("Recording stopped. Captured " + std::to_string(frame_counter) + " frames.").c_str());
+		}
+		else {
+			reshade::log::message(reshade::log::level::warning,
+				"Not currently recording. Press F10 to start recording.");
+		}
+	}
+
+	if (is_recording)
+	{
+		std::stringstream frame_ss;
+		frame_ss << std::setw(6) << std::setfill('0') << frame_counter;
+		std::string frame_str = frame_ss.str();
+		for (auto &stencil_backup : stencil_backups) {
+			resource_desc stencil_backup_desc = device->get_resource_desc(stencil_backup);
+			saveImage(runtime, stencil_backup, stencil_backup_desc, stencil_backup_desc.texture.format, stencil);
+		}
+		auto &data = *runtime->get_private_data<generic_depth_data>();
+		resource depth_backup = data.selected_depth_stencil;
+		resource_desc depth_backup_desc = device->get_resource_desc(depth_backup);
+		saveImage(runtime, depth_backup, depth_backup_desc, depth_backup_desc.texture.format, depth);
+
+		resource rgb_buffer = runtime->get_current_back_buffer();
+		resource_desc rgb_desc = device->get_resource_desc(rgb_buffer);
+		saveImage(runtime, rgb_buffer, rgb_desc, rgb_desc.texture.format, rgb);
+		// runtime->capture_screenshot(rgb_mat.data);
+
+		std::filesystem::path base_path = save_dir;
+
+		std::filesystem::path depth_path = save_dir / "depth" / (frame_str + ".tiff");
+		std::filesystem::path stencil_path = save_dir / "stencil" / (frame_str + ".png");
+		std::filesystem::path rgb_path = save_dir / "rgb" / (frame_str + ".png");
+
+		std::filesystem::create_directories(depth_path.parent_path());
+		std::filesystem::create_directories(stencil_path.parent_path());
+		std::filesystem::create_directories(rgb_path.parent_path());
+
+		bool depth_saved = cv::imwrite(depth_path.string(), depth_mat);
+		bool stencil_saved = cv::imwrite(stencil_path.string(), stencil_mat);
+		bool rgb_saved = cv::imwrite(rgb_path.string(), rgb_mat);
+
+		// reshade::log::message(reshade::log::level::info,
+		// 	(std::string("Depth image saved to ") + depth_path.string() +
+		// 	std::string(depth_saved ? " successfully" : " failed")).c_str());
+
+		// reshade::log::message(reshade::log::level::info,
+		// 	(std::string("Stencil image saved to ") + stencil_path.string() +
+		// 	std::string(stencil_saved ? " successfully" : " failed")).c_str());
+		// reshade::log::message(reshade::log::level::info,
+		// 	(std::string("rgb image saved to ") + rgb_path.string() +
+		// 	std::string(rgb_saved ? " successfully" : " failed")).c_str());
+
+		depth_mat.setTo(cv::Scalar(0.0f));
+		stencil_mat.setTo(cv::Scalar(0));
+		rgb_mat.setTo(cv::Scalar(0, 0, 0, 0));
+		frame_counter++;
+	}
+
 	for (auto &stencil_backup : stencil_backups) {
 		device->destroy_resource(stencil_backup);
 	}
@@ -859,9 +948,12 @@ static void on_init_effect_runtime(effect_runtime *runtime)
 	uint32_t width = 0, height = 0;
 	runtime->get_screenshot_width_and_height(&width, &height);
 
-	// 更新全局变量
+	// get render width and height
 	main_render_width = width;
 	main_render_height = height;
+	depth_mat = cv::Mat(height, width, CV_32F, cv::Scalar(0.0f));
+	stencil_mat = cv::Mat(height, width, CV_8U, cv::Scalar(0));
+	rgb_mat = cv::Mat(height, width, CV_8UC4, cv::Scalar(0, 0, 0, 0));
 	runtime->create_private_data<generic_depth_data>();
 }
 static void on_destroy_effect_runtime(effect_runtime *runtime)
@@ -1108,10 +1200,6 @@ static bool on_clear_depth_stencil(command_list *cmd_list, resource_view dsv, co
 			state.counters_per_used_depth_stencil[depth_stencil].reversed_clear_value = true;
 		}
 	}
-	// if (depth != nullptr)
-	// {
-	// 	reshade::log::message(reshade::log::level::error, ("on_clear_depth_stencil:dpeth" + std::to_string(*depth)).c_str());
-	// }
 	if (stencil != nullptr)
 	{
 		auto &state = *cmd_list->get_private_data<state_tracking>();
@@ -1129,9 +1217,6 @@ static bool on_clear_depth_stencil(command_list *cmd_list, resource_view dsv, co
 			cmd_list->barrier(depth_stencil, resource_usage::copy_source, resource_usage::depth_stencil_write);
 			stencil_backups.push_back(temp_resource);
 		}
-
-
-		// reshade::log::message(reshade::log::level::error, ("on_clear_depth_stencil:stencil" + std::to_string(*stencil)).c_str());
 		return false;
 	}
 
