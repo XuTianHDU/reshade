@@ -539,62 +539,6 @@ std::string toHexString(uint32_t value)
 }
 
 
-// bool capture_image(const resource_desc &desc, const subresource_data &data, type tex_type)
-// {
-// 	const uint64_t *data_p = static_cast<const uint64_t *>(data.data);
-// 	// float min_depth = std::numeric_limits<float>::max();
-// 	// float max_depth = std::numeric_limits<float>::lowest();
-
-// 	for (uint32_t y = 0; y < desc.texture.height; ++y)
-// 	{
-// 		const uint64_t *row_p = reinterpret_cast<const uint64_t *>(
-// 			reinterpret_cast<const uint8_t *>(data_p) + y * data.row_pitch);
-
-// 		for (uint32_t x = 0; x < desc.texture.width; ++x)
-// 		{
-// 			uint64_t pixel = row_p[x];
-// 			const size_t idx = y * desc.texture.width + x;
-// 			switch (tex_type)
-// 			{
-// 			case depth:
-// 			{
-// 				float *depth_ptr = reinterpret_cast<float *>(depth_mat.data);
-// 				float depth;
-// 				uint32_t depth_bits = pixel & 0xFFFFFFFF;
-// 				std::memcpy(&depth, &depth_bits, sizeof(float));
-// 				depth_ptr[y * desc.texture.width + x] = depth;
-// 				break;
-// 			}
-// 			case stencil:
-// 			{
-// 				uint8_t *stencil_ptr = stencil_mat.data;
-// 				uint8_t stencil = (pixel >> 32) & 0xFF;
-// 				stencil_ptr[y * desc.texture.width + x] = std::max(stencil_ptr[y * desc.texture.width + x], stencil);
-// 				break;
-// 			}
-// 			case rgb:
-// 			{
-
-// 			}
-// 			default:
-// 				// 如果 tex_type 是未知类型，输出警告或错误日志
-// 				std::cerr << "Unknown texture type: " << tex_type << std::endl;
-// 				return false;
-// 			}
-
-// 			// // 跟踪最小/最大值
-// 			// min_depth = std::min(min_depth, depth);
-// 			// max_depth = std::max(max_depth, depth);
-// 		}
-// 	}
-
-// 	// reshade::log::message(reshade::log::level::warning,
-// 	//     ("Vector depth range: [" + std::to_string(min_depth) + ", " +
-// 	//     std::to_string(max_depth) + "]").c_str());
-// 	return true;
-// }
-
-
 bool capture_image(const resource_desc &desc, const subresource_data &data, type tex_type)
 {
 	if (tex_type == rgb)
